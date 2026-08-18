@@ -1,0 +1,48 @@
+{
+  "name": "个人成长强者体系",
+  "short_name": "成长APP",
+  "description": "七大系统 · 思维导图 · AI学习方法 · 计时打卡 · 数据复盘",
+  "start_url": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#1e1b4b",
+  "theme_color": "#6366f1",
+  "lang": "zh-CN",
+  "icons": [
+    {
+      "src": "data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 192 192'><rect width='192' height='192' rx='42' fill='%236366f1'/><circle cx='96' cy='96' r='58' fill='%23ffffff' fill-opacity='0.15'/><text x='96' y='118' text-anchor='middle' font-size='78' font-family='sans-serif' fill='white' font-weight='bold'>强</text></svg>",
+      "sizes": "192x192",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 512 512'><rect width='512' height='512' rx='112' fill='url(%23g)'/><defs><linearGradient id='g' x1='0' y1='0' x2='1' y2='1'><stop offset='0%25' stop-color='%236366f1'/><stop offset='100%25' stop-color='%238b5cf6'/></linearGradient></defs><circle cx='256' cy='256' r='155' fill='%23ffffff' fill-opacity='0.15'/><text x='256' y='310' text-anchor='middle' font-size='210' font-family='sans-serif' fill='white' font-weight='bold'>强</text></svg>",
+      "sizes": "512x512",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "一键番茄钟",
+      "short_name": "番茄钟",
+      "description": "立即启动25分钟番茄工作法",
+      "url": "/goals?action=pomodoro",
+      "icons": [{ "src": "data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 96 96'><rect width='96' height='96' rx='20' fill='%23ef4444'/><text x='48' y='62' text-anchor='middle' font-size='44' fill='white'>🍅</text></svg>", "sizes": "96x96" }]
+    },
+    {
+      "name": "快速打卡",
+      "short_name": "打卡",
+      "description": "完成今日所有习惯打卡",
+      "url": "/daily?action=checkin",
+      "icons": [{ "src": "data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 96 96'><rect width='96' height='96' rx='20' fill='%2322c55e'/><text x='48' y='62' text-anchor='middle' font-size='44' fill='white'>✓</text></svg>", "sizes": "96x96" }]
+    },
+    {
+      "name": "当日待办",
+      "short_name": "待办",
+      "description": "查看今日习惯清单",
+      "url": "/daily",
+      "icons": [{ "src": "data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 96 96'><rect width='96' height='96' rx='20' fill='%233b82f6'/><text x='48' y='62' text-anchor='middle' font-size='40' fill='white'>📋</text></svg>", "sizes": "96x96" }]
+    }
+  ]
+}

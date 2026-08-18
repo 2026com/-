@@ -1,0 +1,17 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+
+# Logs & runtime temp
+*.log
+*.pid
+vite.pid
+build-check.log
+vite-check.log
+vite-check.err.log
+
+# OS / IDE
+Thumbs.db
+.DS_Store

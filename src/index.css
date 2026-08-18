@@ -1,0 +1,115 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --safe-top: env(safe-area-inset-top, 0px);
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+}
+
+* {
+  -webkit-tap-highlight-color: transparent;
+  box-sizing: border-box;
+}
+
+html, body, #root {
+  height: 100%;
+  width: 100%;
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+  font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+  background: #f8fafc;
+  color: #1e293b;
+  font-size: 14px;
+  user-select: none;
+}
+
+/* 横线草稿格幕布样式 */
+.canvas-lined {
+  background-image: repeating-linear-gradient(
+    0deg,
+    transparent,
+    transparent 31px,
+    #e2e8f0 31px,
+    #e2e8f0 32px
+  );
+  background-size: 100% 32px;
+}
+
+/* 滚动条隐藏（移动端） */
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+/* 节点圆形样式 */
+.mind-node {
+  @apply rounded-full flex items-center justify-center text-center text-white font-medium cursor-pointer transition-all duration-200 shadow-md;
+  min-width: 80px;
+  min-height: 80px;
+}
+
+.mind-node:hover {
+  transform: scale(1.05);
+  box-shadow: 0 10px 20px rgba(0,0,0,0.15);
+}
+
+.mind-node.selected {
+  ring: 3px;
+  ring-color: #fbbf24;
+  transform: scale(1.08);
+}
+
+/* 进度条动画 */
+@keyframes progress-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.7; }
+}
+
+.progress-animated {
+  animation: progress-pulse 2s ease-in-out infinite;
+}
+
+/* Tab切换过渡 */
+.tab-enter {
+  animation: fadeSlideIn 0.25s ease-out;
+}
+
+@keyframes fadeSlideIn {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* 抽屉动画 */
+.drawer-transition {
+  transition: width 0.3s cubic-bezier(0.4, 0, 0.2, 1), transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* 按钮触控反馈 */
+.touch-feedback:active {
+  transform: scale(0.96);
+  opacity: 0.9;
+}
+
+/* 连线SVG样式 */
+.node-link {
+  fill: none;
+  stroke: #94a3b8;
+  stroke-width: 2;
+  stroke-linecap: round;
+}
+
+/* 日历打卡色块 */
+.cal-done { background: #22c55e; color: white; }
+.cal-partial { background: #eab308; color: #1e293b; }
+.cal-none { background: #cbd5e1; color: #64748b; }
