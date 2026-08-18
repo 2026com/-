@@ -406,9 +406,32 @@ function reducer(state, action) {
     }
 
     case 'ADD_TIMER_RECORD': {
-      const records = [...state.timerRecords, { id: uid('t'), ...action.payload, createdAt: Date.now() }]
+      const records = [...state.timerRecords, { id: uid('t'), done: false, ...action.payload, createdAt: Date.now() }]
       storage.set(STORAGE_KEYS.TIMER_RECORDS, records)
       return { ...state, timerRecords: records }
+    }
+    // 阶段1 修复：计时结束（TimerWidget 使用）——统一走 reducer，不再 hack localStorage + location.reload
+    case 'FINISH_TIMER_RECORD': {
+      const { id, completed = true } = action.payload || {}
+      const target = state.timerRecords.find(t => t.id === id && !t.done)
+      if (!target) return state
+      const isPomodoro = target.type === 'pomodoro'
+      const elapsedMin = Math.max(1, Math.round((Date.now() - (target.started || Date.now())) / 60000))
+      const finalMin = isPomodoro && completed ? (Number(target.minutes) || 25) : elapsedMin
+      const records = state.timerRecords.map(t =>
+        t.id === id ? { ...t, done: true, minutes: finalMin, endAt: Date.now() } : t
+      )
+      storage.set(STORAGE_KEYS.TIMER_RECORDS, records)
+      // 若该计时关联了节点，则给节点增加进度（按分钟 → 进度增量，1h ≈ 2%）
+      let nodes = state.nodes
+      if (target.nodeId && finalMin > 0) {
+        const inc = Math.min(100, Math.round(finalMin / 60 * 2))
+        nodes = state.nodes.map(n => n.id === target.nodeId
+          ? { ...n, progress: Math.min(100, Number(n.progress || 0) + inc) }
+          : n)
+        storage.set(STORAGE_KEYS.NODES, nodes)
+      }
+      return { ...state, timerRecords: records, nodes }
     }
 
     // AI对话历史（新版API）

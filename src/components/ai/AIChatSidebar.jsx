@@ -2,6 +2,7 @@ import React, { useState, useRef, useEffect, useCallback } from 'react'
 import { useAppState, useAppDispatch } from '../../context/AppContext.jsx'
 import { uid } from '../../utils/storage.js'
 import { chatCompletion } from '../../utils/aiClient.js'
+import AIConfigPanel from './AIConfigPanel.jsx'
 
 /**
  * 常驻可收起侧边 AI 对话窗口
@@ -12,16 +13,19 @@ import { chatCompletion } from '../../utils/aiClient.js'
  *  - 密钥全来自浏览器 localStorage（state.aiConfig），未硬编码
  *  - 预留扩展：qwen/glm/custom 三家都可通过配置面板切换，aiClient 兼容 /chat/completions 协议
  */
-export default function AIChatSidebar({ onOpenConfig }) {
+export default function AIChatSidebar({ onOpenConfig, embedded = false }) {
   const state = useAppState()
   const dispatch = useAppDispatch()
   const aiConfig = state.aiConfig
 
-  const [expanded, setExpanded] = useState(false)
+  // embedded 模式（左侧抽屉）：始终视为展开；否则为右侧浮球模式
+  const [expanded, setExpanded] = useState(embedded)
   const [inputValue, setInputValue] = useState('')
   const [loading, setLoading] = useState(false)
   const scrollRef = useRef(null)
   const textareaRef = useRef(null)
+  // 阶段1：内置配置面板状态（无论 embedded 与否，⚙️ 都能打开模型配置）
+  const [configOpen, setConfigOpen] = useState(false)
 
   // ================ 折叠态浮球可拖动（仅垂直方向，右侧贴边保持不变） ================
   const FAB_STORAGE_KEY = 'ai.fab.position.v1'
@@ -239,8 +243,8 @@ export default function AIChatSidebar({ onOpenConfig }) {
 
   return (
     <>
-      {/* ============ 折叠态常驻 tab（屏幕右侧贴边，仅垂直方向可拖动） ============ */}
-      {!expanded && (
+      {/* ============ 折叠态常驻 tab（仅非 embedded 模式显示；屏幕右侧贴边，仅垂直方向可拖动） ============ */}
+      {!embedded && !expanded && (
         <button
           onPointerDown={onFabPointerDown}
           onPointerMove={onFabPointerMove}
@@ -265,15 +269,19 @@ export default function AIChatSidebar({ onOpenConfig }) {
         </button>
       )}
 
-      {/* ============ 展开态侧边抽屉 ============ */}
+      {/* ============ 展开态侧边抽屉（embedded 模式下全宽内嵌于左侧抽屉容器） ============ */}
       <div
-        className={`fixed right-0 top-0 h-full z-40 transition-all duration-300 ease-out flex ${
-          expanded ? 'translate-x-0' : 'translate-x-full pointer-events-none'
-        }`}
-        style={{ width: 'min(420px, 88vw)' }}
+        className={
+          embedded
+            ? 'relative h-full w-full flex'
+            : `fixed right-0 top-0 h-full z-40 transition-all duration-300 ease-out flex ${
+                expanded ? 'translate-x-0' : 'translate-x-full pointer-events-none'
+              }`
+        }
+        style={embedded ? undefined : { width: 'min(420px, 88vw)' }}
       >
-        {/* 遮罩点击收起（仅展开态生效） */}
-        {expanded && (
+        {/* 遮罩点击收起（仅展开态 + 非 embedded 生效） */}
+        {!embedded && expanded && (
           <div
             className="absolute right-full top-0 w-screen h-screen bg-slate-900/10 backdrop-blur-[1px]"
             onClick={() => setExpanded(false)}
@@ -282,7 +290,7 @@ export default function AIChatSidebar({ onOpenConfig }) {
         )}
 
         {/* 抽屉主体 */}
-        <div className="relative h-full w-full bg-white/95 backdrop-blur-xl border-l border-slate-200 shadow-2xl flex flex-col">
+        <div className={`relative h-full w-full flex flex-col ${embedded ? 'bg-white' : 'bg-white/95 backdrop-blur-xl border-l border-slate-200 shadow-2xl'}`}>
           {/* 顶部栏 */}
           <div className="flex items-center justify-between px-4 py-3 border-b border-slate-100 shrink-0">
             <div className="flex items-center gap-2">
@@ -296,7 +304,10 @@ export default function AIChatSidebar({ onOpenConfig }) {
             </div>
             <div className="flex items-center gap-1">
               <button
-                onClick={onOpenConfig}
+                onClick={() => {
+                  if (onOpenConfig) onOpenConfig()
+                  else setConfigOpen(true)
+                }}
                 className="w-8 h-8 rounded-lg hover:bg-slate-100 text-slate-600 hover:text-indigo-600 flex items-center justify-center text-base touch-feedback"
                 title="配置模型 API"
               >⚙️</button>
@@ -305,11 +316,13 @@ export default function AIChatSidebar({ onOpenConfig }) {
                 className="w-8 h-8 rounded-lg hover:bg-rose-50 text-slate-500 hover:text-rose-600 flex items-center justify-center text-sm touch-feedback"
                 title="清空聊天记录"
               >🗑️</button>
-              <button
-                onClick={() => setExpanded(false)}
-                className="w-8 h-8 rounded-lg hover:bg-slate-100 text-slate-600 flex items-center justify-center text-lg touch-feedback"
-                title="收起侧边栏"
-              >✕</button>
+              {!embedded && (
+                <button
+                  onClick={() => setExpanded(false)}
+                  className="w-8 h-8 rounded-lg hover:bg-slate-100 text-slate-600 flex items-center justify-center text-lg touch-feedback"
+                  title="收起侧边栏"
+                >✕</button>
+              )}
             </div>
           </div>
 
@@ -398,6 +411,16 @@ export default function AIChatSidebar({ onOpenConfig }) {
           </div>
         </div>
       </div>
+
+      {/* 阶段1：内置模型配置面板（embedded 左侧抽屉模式也可打开） */}
+      {configOpen && (
+        <AIConfigPanel
+          open={configOpen}
+          onClose={() => setConfigOpen(false)}
+          dispatch={dispatch}
+          aiConfig={aiConfig}
+        />
+      )}
     </>
   )
 }

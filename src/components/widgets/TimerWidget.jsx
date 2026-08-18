@@ -32,26 +32,13 @@ export default function TimerWidget() {
   const progress = totalSec > 0 ? Math.min(100, elapsed / totalSec * 100) : Math.min(100, elapsed / 3600 * 10)
 
   const stop = (completed = true) => {
+    // 阶段1 修复：统一走 reducer 的 FINISH_TIMER_RECORD，不再 dispatch 错误 action / 不 hack localStorage / 不整页刷新
     dispatch({
-      type: 'UPDATE_SETTINGS', // 这里用错误的action，实际需要增加 UPDATE_TIMER_RECORD action；下面直接用 set done 实现
-      payload: null
+      type: 'FINISH_TIMER_RECORD',
+      payload: { id: active.id, completed },
     })
-    // 简单处理：删除该未完成记录，新增一个已完成记录
-    const finalMin = isPomodoro && completed ? (active.minutes || 25) : Math.round(elapsed / 60)
-    const newRecords = state.timerRecords.filter(t => t.id !== active.id)
-    newRecords.push({ ...active, done: true, minutes: finalMin, endAt: Date.now() })
-    // 直接写 storage（hack），保证数据持久
-    localStorage.setItem('growth_app_v1_timer_records', JSON.stringify(newRecords))
-    // 加进度
-    if (node && finalMin > 0) {
-      const inc = Math.min(100, Math.round(finalMin / 60 * 2))
-      const p = Math.min(100, Number(node.progress || 0) + inc)
-      localStorage.setItem('growth_app_v1_nodes', JSON.stringify(
-        JSON.parse(localStorage.getItem('growth_app_v1_nodes') || '[]').map(n => n.id === node.id ? { ...n, progress: p } : n)
-      ))
-    }
-    dispatch({ type: 'PUSH_MODAL', payload: { type: 'toast', message: completed ? `✅ 计时完成：${finalMin}分钟` : `⏹ 手动结束：${finalMin}分钟` } })
-    setTimeout(() => location.reload(), 500)
+    setOpen(false)
+    dispatch({ type: 'PUSH_MODAL', payload: { type: 'toast', message: completed ? `✅ 计时完成：${active.minutes || 25}分钟` : `⏹ 手动结束：${Math.max(1, Math.round(elapsed / 60))}分钟` } })
   }
 
   if (!open) {

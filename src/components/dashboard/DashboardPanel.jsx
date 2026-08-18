@@ -18,37 +18,72 @@ export default function DashboardPanel() {
   const dispatch = useAppDispatch()
   if (!state.ui.dashboardOpen) return null
 
-  // 构造数据（V1.0示例数据+真实checkins/records混合）
-  const radarData = [
-    { skill: '学习力', A: 78, fullMark: 100 },
-    { skill: '执行力', A: 82, fullMark: 100 },
-    { skill: '专注力', A: 65, fullMark: 100 },
-    { skill: '意志力', A: 88, fullMark: 100 },
-    { skill: '反思力', A: 72, fullMark: 100 },
-    { skill: '创造力', A: 58, fullMark: 100 },
-  ]
+  // ========== 构造真实数据（阶段1 修复：从 state 真实计算，不再硬编码） ==========
+  const nodes = state.nodes || []
+  const habits = state.habits || []
+  const checkins = state.checkins || {}
+  const timerRecords = state.timerRecords || []
 
-  const pieData = [
-    { name: '内核定力', value: 38 },
-    { name: '外在战斗力', value: 47 },
-    { name: '情商社交', value: 15 },
+  // ① 六大能力雷达图：按七大系统归属统计节点平均进度（映射为六能力维度）
+  const SYSTEM_SKILL_MAP = [
+    { sys: 'nengli',  skill: '能力成长' },
+    { sys: 'zhishi',  skill: '知识思考' },
+    { sys: 'renji',   skill: '人际网络' },
+    { sys: 'shenti',  skill: '身体状态' },
+    { sys: 'qingxu',  skill: '情绪心理' },
+    { sys: 'caiwu',   skill: '财务掌控' },
+    { sys: 'richeng', skill: '任务日程' },
   ]
+  const radarData = SYSTEM_SKILL_MAP.map(({ sys, skill }) => {
+    const sysNodes = nodes.filter(n => (n.systemId || '') === sys)
+    const avg = sysNodes.length > 0
+      ? Math.round(sysNodes.reduce((s, n) => s + (Number(n.progress) || 0), 0) / sysNodes.length)
+      : 0
+    return { skill, A: avg, fullMark: 100 }
+  })
 
-  const reasonData = [
-    { reason: '时间预估偏差', count: 12 },
-    { reason: '优先级冲突', count: 8 },
-    { reason: '精力低谷', count: 6 },
-    { reason: '任务难度超标', count: 4 },
-    { reason: '外部干扰', count: 3 },
-  ]
+  // ② 月度时间投入占比饼图：按系统归类统计计时分钟数占比
+  const minutesBySys = {}
+  timerRecords.filter(t => t.done).forEach(t => {
+    const n = nodes.find(x => x.id === t.nodeId)
+    const sys = (n && n.systemId) || 'richeng'
+    minutesBySys[sys] = (minutesBySys[sys] || 0) + (Number(t.minutes) || 0)
+  })
+  const totalMin = Object.values(minutesBySys).reduce((a, b) => a + b, 0)
+  const sysName = (id) => {
+    const s = SYSTEM_SKILL_MAP.find(x => x.sys === id)
+    return s ? s.skill : (id || '任务日程')
+  }
+  const pieData = totalMin > 0
+    ? SYSTEM_SKILL_MAP
+        .map(({ sys }) => ({ name: sysName(sys), value: Math.round((minutesBySys[sys] || 0) / totalMin * 100) }))
+        .filter(x => x.value > 0)
+    : [{ name: '暂无计时数据', value: 100 }]
 
-  // 基于真实打卡数据生成近30天连续打卡曲线
+  // ③ 未完成任务原因分类统计：按节点状态统计（待开始/进行中/暂停/放弃）
+  const statusCount = {}
+  nodes.forEach(n => {
+    const st = n.status || 'todo'
+    statusCount[st] = (statusCount[st] || 0) + 1
+  })
+  const REASON_LABEL = {
+    todo: '待开始（尚未排期）',
+    progress: '进行中（推进缓慢）',
+    paused: '暂停（主动搁置）',
+    aborted: '放弃（终止执行）',
+  }
+  const reasonData = Object.entries(statusCount)
+    .map(([k, v]) => ({ reason: REASON_LABEL[k] || k, count: v }))
+    .filter(x => x.count > 0)
+  if (reasonData.length === 0) reasonData.push({ reason: '暂无未完成任务', count: 0 })
+
+  // ④ 基于真实打卡数据生成近30天连续打卡曲线
   const streakData = Array.from({ length: 30 }, (_, i) => {
     const d = new Date()
     d.setDate(d.getDate() - (29 - i))
     const ds = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
-    const done = state.habits.filter(h => state.checkins[`${ds}_${h.id}`]).length
-    const total = state.habits.length || 1
+    const done = habits.filter(h => checkins[`${ds}_${h.id}`]).length
+    const total = habits.length || 1
     return {
       day: `${d.getMonth() + 1}/${d.getDate()}`,
       completeRate: Math.round(done / total * 100),

@@ -1,11 +1,13 @@
 import React from 'react'
 import { useAppState, useAppDispatch } from '../../context/AppContext.jsx'
 import { useMemo } from 'react'
+import { dateUtil } from '../../utils/storage.js'
 
 /**
  * 顶部状态栏
  * - 历史复盘视图时展示：年度完成率、有效工作时间
  * - 右侧常驻：打卡日历开关、配色/模式
+ * 阶段1 修复：统计从硬编码改为真实数据计算
  */
 export default function TopStatusBar() {
   const state = useAppState()
@@ -13,11 +15,33 @@ export default function TopStatusBar() {
   const { activeTab } = state.ui
 
   const stats = useMemo(() => {
-    const yearRate = 52 // 默认示例数据
-    const totalHours = 186
-    const streak = 25
+    // ===== 有效工作时间：真实计时记录汇总（分钟 → 小时） =====
+    const doneMinutes = (state.timerRecords || [])
+      .filter(t => t.done)
+      .reduce((s, t) => s + (Number(t.minutes) || 0), 0)
+    const totalHours = Math.round(doneMinutes / 60 * 10) / 10
+
+    // ===== 年度完成率：所有根节点进度的加权平均 =====
+    const roots = (state.nodes || []).filter(n => !n.parentId)
+    const yearRate = roots.length > 0
+      ? Math.round(roots.reduce((s, r) => s + (Number(r.progress) || 0), 0) / roots.length)
+      : 0
+
+    // ===== 连续打卡天数：从今天往前数，有任意打卡即不断 =====
+    const today = new Date(dateUtil.today())
+    let streak = 0
+    for (let i = 0; i < 365; i++) {
+      const d = new Date(today)
+      d.setDate(d.getDate() - i)
+      const ds = dateUtil.format(d)
+      const anyDone = (state.habits || []).some(h => state.checkins[`${ds}_${h.id}`])
+      if (anyDone) streak++
+      else if (i === 0) streak = 0
+      else break
+    }
+
     return { yearRate, totalHours, streak }
-  }, [state.nodes, state.timerRecords])
+  }, [state.nodes, state.timerRecords, state.habits, state.checkins])
 
   return (
     <header

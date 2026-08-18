@@ -2,7 +2,7 @@ import React, { useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAppState, useAppDispatch } from '../../context/AppContext.jsx'
 import { getSEVEN_SYSTEMS_EFFECTIVE } from '../../utils/constants.js'
-import AIChatPanel from '../ai/AIChatPanel.jsx'
+import AIChatSidebar from '../ai/AIChatSidebar.jsx'
 
 /**
  * 左侧全局可收起抽屉 双模式一键切换（V2：只保留 7 个指定系统）
@@ -73,7 +73,8 @@ export default function LeftDrawer() {
         {drawerMode === 'nav' ? (
           <NavContent collapsed={!drawerOpen} />
         ) : (
-          drawerOpen && <AIChatPanel />
+          /* 阶段1：统一使用新版真实 DeepSeek AI 面板（embedded 内嵌模式） */
+          drawerOpen && <AIChatSidebar embedded />
         )}
       </div>
     </aside>
