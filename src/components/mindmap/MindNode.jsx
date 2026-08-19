@@ -14,7 +14,7 @@ import { calcProgress } from '../../utils/storage.js'
  * 共有元素：左上角「2 字状态徽标胶囊」+ 正下方进度条 + 百分比
  * ===========================================================
  */
-export default function MindNode({ node, selected, onClick, onMouseDown, progressMode, children, allNodes, siblingIndex = 0 }) {
+export default function MindNode({ node, selected, onClick, onPopupOpen, onMouseDown, progressMode, children, allNodes, siblingIndex = 0, hasChildren = false, expanded = false, editMode = false }) {
   // ---------- 1. 5 态匹配：NODE_STATUS 由 Object.values() 反查 key ----------
   const status = useMemo(() => {
     const match = Object.values(NODE_STATUS).find(s => s.key === node.status)
@@ -94,12 +94,11 @@ export default function MindNode({ node, selected, onClick, onMouseDown, progres
       borderRadius: 0,
       background: 'transparent',
       border: 'none',
-      boxShadow: 'none',
     }
   } else if (isRouteStageNode) {
     // 主线黑色圆角胶囊 / 黑色圆形：白底黑 → 黑底白字
     shapeStyle = {
-      borderRadius: 999,
+    borderRadius: 6,
       background: '#0a0a0a',
       border: '1.5px solid #000',
       boxShadow: '0 4px 12px rgba(0,0,0,0.18), inset 0 1px 0 rgba(255,255,255,0.15)',
@@ -107,25 +106,24 @@ export default function MindNode({ node, selected, onClick, onMouseDown, progres
     }
   } else if (isCategoryBox) {
     shapeStyle = {
-      borderRadius: 14,
+    borderRadius: 6,
       background: '#ffffff',
       border: '1.5px solid #0a0a0a',
-      boxShadow: '0 4px 12px rgba(0,0,0,0.06)',
     }
   } else if (isStageNode) {
     shapeStyle = {
-      borderRadius: '50% / 55%',
-      background: `radial-gradient(ellipse at 30% 30%, ${lighten(status.color, 94)} 0%, ${lighten(status.color, 78)} 45%, #ffffff 100%)`,
-      border: `1.5px solid ${status.color}`,
-      boxShadow: `0 6px 16px ${status.color}33, inset 0 1px 2px rgba(255,255,255,0.55)`,
+    borderRadius: 6,
+    background: '#ffffff',
+    border: `1.5px solid ${status.color}`,
+    boxShadow: '0 1px 0 rgba(0,0,0,0.15)',
     }
   } else {
     shapeStyle = {
-      borderRadius: '12px',
+    borderRadius: 6,
       background: '#ffffff',
-      border: `1px solid #e2e8f0`,
+    border: `1.5px solid #0f172a`,
       borderTop: `3px solid ${status.color}`,
-      boxShadow: `0 4px 14px rgba(15,23,42,0.06), 0 2px 6px rgba(15,23,42,0.04)`,
+    boxShadow: '0 1px 0 rgba(0,0,0,0.12)',
     }
   }
 
@@ -135,13 +133,14 @@ export default function MindNode({ node, selected, onClick, onMouseDown, progres
       {isFlagNode ? (
         // P1N：终点旗帜（三角形红色旗面 + 黑色旗杆 + 白底"可独立达成目标" 文字）
         <div
-          className={`mind-node absolute ${selected ? 'ring-2 ring-yellow-400 ring-offset-1' : ''}`}
+          className={`mind-node mind-node-enter absolute ${selected ? 'ring-2 ring-yellow-400 ring-offset-1' : ''}`}
           style={{
             left: (node.x || 0) - NODE_W / 2,
             top:  (node.y || 0) - NODE_H / 2,
             width: NODE_W, height: NODE_H,
             position: 'absolute',
             zIndex: 100 - level,
+            cursor: editMode ? 'grab' : 'pointer',
           }}
           onClick={onClick}
           onMouseDown={onMouseDown}
@@ -160,7 +159,7 @@ export default function MindNode({ node, selected, onClick, onMouseDown, progres
         </div>
       ) : (
         <div
-          className={`mind-node absolute ${selected ? 'ring-2 ring-yellow-400 ring-offset-1' : ''}`}
+          className={`mind-node mind-node-enter absolute ${selected ? 'ring-2 ring-yellow-400 ring-offset-1' : ''}`}
           style={{
             left: (node.x || 0) - NODE_W / 2,
             top:  (node.y || 0) - NODE_H / 2,
@@ -169,6 +168,7 @@ export default function MindNode({ node, selected, onClick, onMouseDown, progres
             ...shapeStyle,
             zIndex: 100 - level,
             position: 'absolute',
+            cursor: editMode ? 'grab' : 'pointer',
             fontSize: isRouteStageNode ? 13 : (isCategoryBox ? 11 : (isStageNode ? 12 : 10.5)),
           }}
           onClick={onClick}
@@ -256,6 +256,24 @@ export default function MindNode({ node, selected, onClick, onMouseDown, progres
               style={{ height: 3, background: `${progressColor}22` }}
             />
           )}
+
+          {/* ======= W5：父节点右上角悬浮操作条 [▸/▾ 展开子节点] [✎ 查看/编辑] ======= */}
+          {hasChildren && (
+            <div className="absolute flex items-center gap-1" style={{ top: -27, right: 0, zIndex: 30 }}>
+              <button
+                onClick={(e) => { e.stopPropagation(); if (onClick) onClick(e) }}
+                className="w-6 h-6 rounded-full bg-white border border-slate-300 shadow-md flex items-center justify-center text-[11px] leading-none text-slate-600 hover:border-indigo-400 hover:text-indigo-600 transition-colors touch-feedback"
+                title={expanded ? '收起子节点' : '展开子节点'}
+                aria-label={expanded ? '收起子节点' : '展开子节点'}
+              >{expanded ? '▾' : '▸'}</button>
+              <button
+                onClick={(e) => { e.stopPropagation(); if (onPopupOpen) onPopupOpen(e) }}
+                className="w-6 h-6 rounded-full bg-white border border-slate-300 shadow-md flex items-center justify-center text-[11px] leading-none text-indigo-500 hover:border-indigo-400 hover:bg-indigo-50 transition-colors touch-feedback"
+                title="查看 / 编辑节点详情"
+                aria-label="查看 / 编辑节点详情"
+              >✎</button>
+            </div>
+          )}
         </div>
       )}
 
@@ -273,7 +291,6 @@ export default function MindNode({ node, selected, onClick, onMouseDown, progres
             <div className="flex-1 h-1.5 bg-slate-200/90 rounded-full overflow-hidden" aria-hidden>
               <div
                 className="h-full rounded-full transition-all duration-300"
-                style={{ width: `${progress}%`, background: progressColor, boxShadow: `0 0 0 1px ${progressColor}22` }}
               />
             </div>
             <span className="shrink-0 text-[10px] text-slate-600 font-bold tabular-nums">{progress}%</span>

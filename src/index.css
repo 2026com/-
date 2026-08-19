@@ -46,22 +46,23 @@ html, body, #root {
   scrollbar-width: none;
 }
 
-/* 节点圆形样式 */
+/* 节点样式（硬朗：小圆角、清晰描边、无柔和投影） */
 .mind-node {
-  @apply rounded-full flex items-center justify-center text-center text-white font-medium cursor-pointer transition-all duration-200 shadow-md;
-  min-width: 80px;
-  min-height: 80px;
+  @apply flex items-center justify-center text-center text-white font-medium cursor-pointer;
+  border-radius: 6px;
+  box-shadow: 0 1px 0 rgba(0,0,0,0.12);
+  /* 位置即时响应、无惯性过渡（避免拖拽/平移时节点拖尾与连线脱节） */
+  transition: transform 0.12s ease-out, box-shadow 0.12s ease-out;
 }
 
 .mind-node:hover {
-  transform: scale(1.05);
-  box-shadow: 0 10px 20px rgba(0,0,0,0.15);
+  transform: scale(1.03);
+  box-shadow: 0 1px 0 rgba(0,0,0,0.2);
 }
 
 .mind-node.selected {
-  ring: 3px;
-  ring-color: #fbbf24;
-  transform: scale(1.08);
+  box-shadow: 0 0 0 2px #fbbf24, 0 1px 0 rgba(0,0,0,0.2);
+  transform: scale(1.04);
 }
 
 /* 进度条动画 */
@@ -113,3 +114,19 @@ html, body, #root {
 .cal-done { background: #22c55e; color: white; }
 .cal-partial { background: #eab308; color: #1e293b; }
 .cal-none { background: #cbd5e1; color: #64748b; }
+
+/* W5：节点展开/收起平滑动画（子节点出现时淡入放大） */
+@keyframes nodePopIn {
+  from {
+    opacity: 0;
+    transform: scale(0.72) translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+.mind-node-enter {
+  animation: nodePopIn 0.28s cubic-bezier(0.16, 1, 0.3, 1);
+  transform-origin: center;
+}

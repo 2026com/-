@@ -1,14 +1,17 @@
 import React, { useState, useMemo } from 'react'
 import { useAppState, useAppDispatch } from '../../context/AppContext.jsx'
-import { isParentLevelNode, genFullRouteAI, genFullRoute, genChildAtomicStepsAI } from '../../utils/aiLogic.js'
+import { isParentLevelNode, genFullRouteAI, genFullRoute, genChildAtomicStepsAI, genPhaseStepsAI } from '../../utils/aiLogic.js'
+import { uid } from '../../utils/storage.js'
 
 /**
- * 长期目标节点点击弹出：重构 V3（E4 复用 AI 配置）
+ * 长期目标节点点击弹出：重构 V3（E4 复用 AI 配置）V5（三层嵌套执行方案）
  * 【2 标签页】：方案（默认）/ 配置
- * 【彻底移除】：执行 Tab、番茄钟按钮、秒表按钮（计时统一收口到日常打卡页）
- * 【新增 E4】：✍️ AI写执行方案 按钮走 state.aiConfig，统一复用侧边栏同一套模型配置；
- *              父节点 -> 3~5 个宏观框架；子节点 -> 4~6 条原子动作；
- *              失败自动 fallback 本地模板，保证 UI 永远不硬错。
+ * 【V5 三层嵌套】：「AI 写执行方案」固定输出三层结构——
+ *   第一层：前期/中期/后期 3 个阶段（阶段名不可改）
+ *   第二层：每阶段下步骤节点（编号 + 名称 + 知识点数量）
+ *   第三层：每步骤下详细内容（知识点清单 / 学习建议 / 达成标准），默认折叠点击展开
+ *   根节点生成完整方案；阶段节点生成步骤；步骤节点生成详细内容；
+ *   失败自动 fallback 本地模板，保证 UI 永远不硬错。
  * 【保留】：树状父子级编辑、一键下发叶子节点到日常打卡、紧凑/展开双视图、点击外部关闭、右下角独立删除按钮
  */
 export default function NodePopup({ nodeId, onClose, getPosition }) {
@@ -46,15 +49,19 @@ export default function NodePopup({ nodeId, onClose, getPosition }) {
     })
   }
 
-  // === P1 V4：AI 写执行方案（父级=完整学习路线；子级=4~6 条原子动作），复用 state.aiConfig ===
+  // === V5：AI 写执行方案（三层嵌套），复用 state.aiConfig ===
+  //   根节点（无父/level0）→ 完整三层方案：3 阶段 + 步骤 + 详细内容（走 ADD_ROUTE_TREE）
+  //   阶段节点（前期/中期/后期）→ 生成该阶段下的步骤节点（编号+名称+知识点数量）
+  //   步骤/其他节点 → 生成详细内容（知识点清单 / 学习建议 / 达成标准 三个板块）
   const writeExecutionPlan = async () => {
     if (aiGenerating) return
     const existingKids = state.nodes.filter(n => n.parentId === nodeId).length
+    const isRoutePhaseNode = !!node.isRouteStageNode || !!node.stagePhase
 
-    // === 父级：生成完整照片同款路线（标题/副标题/三期主线节点/上下4+4白框/终点旗帜/底部6步口诀） ===
+    // === 根节点：三层嵌套完整方案（3 阶段 + 步骤节点 + 详细内容） ===
     const doGenParentRoute = async () => {
       setAiGenerating(true)
-      dispatch({ type: 'PUSH_MODAL', payload: { type: 'toast', message: '🤖 AI 正在生成完整学习路线（3 阶段 + 4×8 白框）...' } })
+      dispatch({ type: 'PUSH_MODAL', payload: { type: 'toast', message: '🤖 AI 正在生成三层执行方案（前期/中期/后期 + 步骤 + 详细内容）...' } })
       try {
         const cfg = aiConfig
         let route
@@ -66,7 +73,7 @@ export default function NodePopup({ nodeId, onClose, getPosition }) {
         // 基准起点 ISO：优先 startDate / dueDate，没有就写今天（今天 dayIdx=0，时间轴正中锚点）
         const todayISO = new Date().toISOString().slice(0, 10)
 
-        // 交给 AppContext 的批处理 action，一次性把 1(更新根元信息) + 3(阶段胶囊) + 8×3(上下白框) + 1(终点旗) 合并落盘，避免父子时序错位。
+        // 交给 AppContext 的批处理 action，一次性把 1(更新根元信息) + 3(阶段节点) + 步骤 + 详细内容 合并落盘，避免父子时序错位。
         dispatch({
           type: 'ADD_ROUTE_TREE',
           rootNodeId: nodeId,
@@ -79,43 +86,102 @@ export default function NodePopup({ nodeId, onClose, getPosition }) {
           parentNodeXY: { x: node.x || 0, y: node.y || 0 },
         })
         const hint = cfg?.apiKey ? '（真实 LLM）' : '（未配置 Key · 本地模板兜底）'
-        dispatch({ type: 'PUSH_MODAL', payload: { type: 'toast', message: `✅ AI 路线已生成：3 阶段 × 8 分类框 + 终点旗帜${hint}` } })
+        dispatch({ type: 'PUSH_MODAL', payload: { type: 'toast', message: `✅ AI 方案已生成：3 阶段 + 步骤 + 详细内容${hint}` } })
       } catch (err) {
-        dispatch({ type: 'PUSH_MODAL', payload: { type: 'toast', message: `⚠️ AI 路线生成异常：${(err && err.message) ? String(err.message).slice(0, 40) : '未知错误'}，请重试` } })
+        dispatch({ type: 'PUSH_MODAL', payload: { type: 'toast', message: `⚠️ AI 方案生成异常：${(err && err.message) ? String(err.message).slice(0, 40) : '未知错误'}，请重试` } })
       } finally {
         setAiGenerating(false)
       }
     }
 
-    // === 子级：4~6 条原子动作（保留历史逻辑） ===
-    const doGenChildSteps = async () => {
+    // === 阶段节点（前期/中期/后期）：生成该阶段下的步骤节点（编号+名称+知识点数量） ===
+    const doGenPhaseSteps = async () => {
       setAiGenerating(true)
-      dispatch({ type: 'PUSH_MODAL', payload: { type: 'toast', message: '🤖 AI 正在生成原子动作（4~6 条）...' } })
+      dispatch({ type: 'PUSH_MODAL', payload: { type: 'toast', message: '🤖 AI 正在生成该阶段下的步骤节点...' } })
       try {
         const parent = state.nodes.find(p => p.id === node.parentId)
-        const items = await genChildAtomicStepsAI(aiConfig, node, parent?.title || '')
-        if (!Array.isArray(items) || items.length === 0) {
+        const steps = await genPhaseStepsAI(aiConfig, node, parent?.title || '')
+        if (!Array.isArray(steps) || steps.length === 0) {
           dispatch({ type: 'PUSH_MODAL', payload: { type: 'toast', message: '⚠️ AI 暂未匹配到合适方案，请手动添加' } })
           return
         }
         const startIdx = state.nodes.filter(n => n.parentId === nodeId).length
-        items.forEach((item, i) => {
+        steps.forEach((st, i) => {
+          const points = Math.max(1, Number(st.points) || 8)
           dispatch({
             type: 'ADD_NODE',
             payload: {
-              title: item.title,
+              // 步骤标题直接用学习内容名称 + 知识点数量（先后顺序由主轴上日期距离决定）
+              title: `${st.name}（${points}个知识点）`,
               parentId: nodeId,
               systemId: node.systemId || 'zhuye',
               status: 'todo', progress: 0,
-              x: (node.x || 0) + 160,
-              y: (node.y || 0) + ((startIdx + i) * 90 - (startIdx + i + 1) * 45) * 0.8,
+              x: (node.x || 0) + 200,
+              y: (node.y || 0) + 70 + i * 90,
               level: (node.level || 0) + 1,
-              estimatedHours: 10, difficulty: 1, value: 1, weight: 20,
+              estimatedHours: 8, difficulty: 1, value: 1, weight: 10,
             }
           })
         })
         const hint = aiConfig?.apiKey ? '（真实 LLM）' : '（未配置 Key · 本地模板兜底）'
-        dispatch({ type: 'PUSH_MODAL', payload: { type: 'toast', message: `✅ AI 已生成 ${items.length} 条原子动作${hint}` } })
+        dispatch({ type: 'PUSH_MODAL', payload: { type: 'toast', message: `✅ AI 已生成 ${steps.length} 个步骤节点${hint}` } })
+      } catch (err) {
+        dispatch({ type: 'PUSH_MODAL', payload: { type: 'toast', message: `⚠️ AI 生成异常：${(err && err.message) ? String(err.message).slice(0, 40) : '未知错误'}，请稍后重试` } })
+      } finally {
+        setAiGenerating(false)
+      }
+    }
+
+    // === 步骤节点：生成详细内容（知识点清单 / 学习建议 / 达成标准 三个板块） ===
+    const addDetailSection = (secTitle, items) => {
+      if (!Array.isArray(items) || items.length === 0) return
+      const secId = uid('node')
+      const baseLevel = (node.level || 0) + 1
+      dispatch({
+        type: 'ADD_NODE',
+        payload: {
+          id: secId,
+          title: secTitle,
+          parentId: nodeId,
+          systemId: node.systemId || 'zhuye',
+          status: 'todo', progress: 0,
+          x: (node.x || 0) + 260,
+          y: (node.y || 0) + 90,
+          level: baseLevel,
+          estimatedHours: 2, difficulty: 1, value: 1, weight: 5,
+        }
+      })
+      items.forEach((it, q) => {
+        dispatch({
+          type: 'ADD_NODE',
+          payload: {
+            title: String(it),
+            parentId: secId,
+            systemId: node.systemId || 'zhuye',
+            status: 'todo', progress: 0,
+            x: (node.x || 0) + 340,
+            y: (node.y || 0) + 110 + q * 34,
+            level: baseLevel + 1,
+            estimatedHours: 1, difficulty: 1, value: 1, weight: 3,
+          }
+        })
+      })
+    }
+    const doGenChildSteps = async () => {
+      setAiGenerating(true)
+      dispatch({ type: 'PUSH_MODAL', payload: { type: 'toast', message: '🤖 AI 正在生成该步骤的详细内容（知识点清单 / 学习建议 / 达成标准）...' } })
+      try {
+        const parent = state.nodes.find(p => p.id === node.parentId)
+        const details = await genChildAtomicStepsAI(aiConfig, node, parent?.title || '')
+        if (!details || ((!Array.isArray(details.items) || !details.items.length) && !details.advice && !details.standard)) {
+          dispatch({ type: 'PUSH_MODAL', payload: { type: 'toast', message: '⚠️ AI 暂未匹配到合适方案，请手动添加' } })
+          return
+        }
+        addDetailSection('📚 知识点清单', details.items)
+        addDetailSection('💡 学习建议', details.advice ? [details.advice] : [])
+        addDetailSection('🏁 达成标准', details.standard ? [details.standard] : [])
+        const hint = aiConfig?.apiKey ? '（真实 LLM）' : '（未配置 Key · 本地模板兜底）'
+        dispatch({ type: 'PUSH_MODAL', payload: { type: 'toast', message: `✅ AI 已生成该步骤的详细内容${hint}` } })
       } catch (err) {
         dispatch({ type: 'PUSH_MODAL', payload: { type: 'toast', message: `⚠️ AI 生成异常：${(err && err.message) ? String(err.message).slice(0, 40) : '未知错误'}，请稍后重试` } })
       } finally {
@@ -125,7 +191,10 @@ export default function NodePopup({ nodeId, onClose, getPosition }) {
 
     const doGen = async () => {
       if (isParentLevelNode(node)) await doGenParentRoute()
+      else if (isRoutePhaseNode) await doGenPhaseSteps()
       else await doGenChildSteps()
+      // 生成完成后自动展开父节点，让新生成的内容立即可见
+      dispatch({ type: 'AUTO_EXPAND', payload: [nodeId] })
     }
 
     // 已有子节点 → 二次确认追加（async onOk 包在 confirm 里）
@@ -135,8 +204,10 @@ export default function NodePopup({ nodeId, onClose, getPosition }) {
           type: 'confirm',
           title: 'AI 方案追加确认',
           message: isParentLevelNode(node)
-            ? `当前节点已有 ${existingKids} 个子节点，追加一条「完整学习路线」（3 阶段 + 8 分类白框），不覆盖原内容，是否继续？`
-            : `当前节点已有 ${existingKids} 个子步骤，AI 生成会追加在现有子步骤后面（不会覆盖/删除已有内容），是否继续？`,
+            ? `当前节点已有 ${existingKids} 个子节点，追加一份「三层执行方案」（3 阶段 + 步骤 + 详细内容），不覆盖原内容，是否继续？`
+            : isRoutePhaseNode
+              ? `当前阶段已有 ${existingKids} 个子节点，AI 会继续追加步骤节点（不覆盖/删除已有内容），是否继续？`
+              : `当前节点已有 ${existingKids} 个子节点，AI 会继续追加详细内容（不覆盖/删除已有内容），是否继续？`,
           showUndo: false, okText: '继续追加', onOk: () => { doGen() },
         }
       })

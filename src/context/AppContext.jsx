@@ -46,6 +46,14 @@ const initialState = () => {
       // AI重构撤销栈（约束规则第3条：AI操作必须可撤回）
       undoStack: [],
       redoStack: [],
+      // V5：AI 生成执行方案后需要自动展开的节点 id（仅内存态，不落盘）
+      autoExpandIds: [],
+      // V5：AI 生成执行方案后需要自动适配的时间范围（仅内存态，不落盘）
+      focusPlan: null,
+      // 长期计划幕布：视图/展开状态快照（跨页面导航保持，切走再回来不消失）
+      viewState: null,
+      // 新建幕布后要聚焦的根节点 id（切换视图到新幕布）
+      focusRootId: null,
     }
   }
 }
@@ -116,9 +124,10 @@ function reducer(state, action) {
       storage.set(STORAGE_KEYS.NODES, newNodes)
       return { ...state, nodes: newNodes }
     }
-    // P1：AI 完整学习路线 —— 一次性批处理写入：根节点元信息（routeTitle/Subtitle/FinalFlag/Mantra）
-    // + 3 条主线阶段胶囊节点 + 每条挂 8 个"上下悬挂白框"子节点（上面4+下面4，含分类前缀）
-    // + 最右端旗帜终点节点；保证父子节点 ID 连续落盘、父子 parentId 100% 正确。
+    // V5：AI 三层嵌套执行方案 —— 一次性批处理写入：根节点元信息（routeTitle/Subtitle）
+    // + 3 个阶段节点（前期/中期/后期）+ 每阶段步骤节点（编号+名称+知识点数量）
+    // + 每步骤 3 个详细板块（知识点清单/学习建议/达成标准）+ 板块下的具体条目；
+    // 保证父子节点 ID 连续落盘、父子 parentId 100% 正确。
     case 'ADD_ROUTE_TREE': {
       const undo = { nodes: JSON.parse(JSON.stringify(state.nodes)) }
       const nodes = state.nodes.slice()
@@ -127,7 +136,12 @@ function reducer(state, action) {
       const route = action.route || {}
       const baseISO = String(action.baseISO || new Date().toISOString().slice(0, 10))
       const startISO = String(action.overrideStartDate || rootNode.startDate || rootNode.dueDate || baseISO)
-      const baseObj = new Date(startISO + 'T00:00:00'); baseObj.setHours(0,0,0,0)
+      // 容错日期解析：只取「YYYY-MM-DD」日期部分（兼容带时间 T / 斜杠 / 空格等格式），解析失败回退今天，杜绝 Invalid time value
+      const dateOnlyMatch = String(startISO).match(/(\d{4})-(\d{1,2})-(\d{1,2})/)
+      const baseObj = dateOnlyMatch
+        ? new Date(Number(dateOnlyMatch[1]), Number(dateOnlyMatch[2]) - 1, Number(dateOnlyMatch[3]))
+        : (() => { const d = new Date(startISO); return isNaN(d.getTime()) ? new Date() : d })()
+      baseObj.setHours(0, 0, 0, 0)
       const addDays = (d, n) => { const x = new Date(d); x.setDate(x.getDate()+n); return x }
       const iso = (d) => d.toISOString().slice(0,10)
       const sysId = action.systemId || rootNode.systemId || 'zhuye'
@@ -135,12 +149,11 @@ function reducer(state, action) {
       const parentXY = action.parentNodeXY || { x: rootNode.x||0, y: rootNode.y||0 }
       const phases = Array.isArray(route.phases) ? route.phases.slice(0,3) : []
       while (phases.length < 3) phases.push({
-        phaseLabel: (['前期｜建立基础','中期','后期｜达到目标水平'])[phases.length],
         stage: (['early','middle','late'])[phases.length],
-        nodeTitle: (['建立基础','能力进阶','稳定输出'])[phases.length],
+        phaseLabel: (['前期','中期','后期'])[phases.length],
+        nodeTitle: (['前期','中期','后期'])[phases.length],
         days: 30,
-        above: {'训练项目':'','技能要点':'','工具物料':'','曲目/案例':''},
-        below: {'能力目标':'','需要攻克的问题':'','练习重点':'','达成标准':''},
+        steps: [],
       })
       // 1) 更新根节点元数据（写路线字段 + hasRoute=true + startDate 保底）
       const rootIdx = nodes.findIndex(n => n.id === action.rootNodeId)
@@ -153,29 +166,37 @@ function reducer(state, action) {
         routeMantra:   Array.isArray(route.mantra) ? route.mantra.slice(0,6) : (rootNode.routeMantra || []),
         hasRoute:      true,
       }
-      // 2) 3 阶段累计日区间
+      // 2) 3 阶段累计日区间 + 生成节点树
       let cursor = 0
-      const stageMetas = []
-      phases.forEach((ph) => {
+      const phaseIds = []
+      const phaseRecs = phases.map((ph, i) => {
         const days = Math.max(1, Number(ph.days) || 30)
-        const s = cursor
-        const e = cursor + days - 1
+        const rec = {
+          phase: ph,
+          stage:      ph.stage      || (['early','middle','late'])[i],
+          phaseLabel: ph.phaseLabel || (['前期','中期','后期'])[i],
+          nodeTitle:  ph.nodeTitle  || (['前期','中期','后期'])[i],
+          steps:      Array.isArray(ph.steps) ? ph.steps : [],
+          startDay: cursor,
+          endDay: cursor + days - 1,
+          days,
+        }
         cursor += days
-        stageMetas.push({ phase: ph, startDay: s, endDay: e, days })
+        return rec
       })
-      const stageIds = []
-      stageMetas.forEach((m, i) => {
+      phaseRecs.forEach((m, i) => {
+        // 阶段节点（第一层）：固定名「前期/中期/后期」
         const sid = uid('node')
-        stageIds.push(sid)
+        phaseIds.push(sid)
         nodes.push({
           id: sid,
           parentId: action.rootNodeId,
           systemId: sysId,
-          title: m.phase.nodeTitle,
-          phaseLabel: m.phase.phaseLabel,
-          stagePhase: m.phase.stage,
+          title: m.nodeTitle,
+          phaseLabel: m.phaseLabel,
+          stagePhase: m.stage,
           status: 'todo', progress: 0,
-          x: parentXY.x + 180 + i * 380,
+          x: parentXY.x + 200 + i * 380,
           y: parentXY.y + (i - 1) * 4,
           level: parentLevel + 1,
           startDate: iso(addDays(baseObj, m.startDay)),
@@ -185,74 +206,119 @@ function reducer(state, action) {
           isRouteStageNode: true,
           createdAt: Date.now(),
         })
-        // 上下 8 个分类白框（4 上 + 4 下）：标题带「🔼 分类名：」/「🔽 分类名：」前缀 + routeGroup/routeCategory 字段便于布局
-        const aboveKeys = ['训练项目','技能要点','工具物料','曲目/案例']
-        const belowKeys = ['能力目标','需要攻克的问题','练习重点','达成标准']
-        const L = parentLevel + 2
-        aboveKeys.forEach((key, j) => {
+        // 步骤节点（第二层）：编号 + 名称 + 知识点数量
+        const steps = m.steps
+        const stepBaseEst = Math.max(3, Math.ceil(m.days * 4 / Math.max(1, steps.length)))
+        steps.forEach((step, j) => {
+          const stepId = uid('node')
+          const stepName = String(step.name || '')
+          const stepPoints = Math.max(1, Number(step.points) || (Array.isArray(step.items) ? step.items.length : 0) || 5)
+          // 步骤标题直接用「主要学习内容 + 知识点数量」；先后顺序按主轴上的日期距离判断，不再用「第X步」编号
+          const stepTitle = `${stepName}（${stepPoints}个知识点）`.trim() || '未命名步骤'
+          // 步骤日期在该阶段区间内均匀分布（步骤 1 靠前、步骤 N 靠后），画布上横向错开不重叠
+          const total = Math.max(1, steps.length)
+          const stepStart = m.startDay + Math.floor((j * m.days) / total)
+          const stepEnd   = m.startDay + Math.floor(((j + 1) * m.days) / total) - 1
+          const sStartISO = iso(addDays(baseObj, stepStart))
+          const sEndISO   = iso(addDays(baseObj, Math.max(stepStart, stepEnd)))
           nodes.push({
-            id: uid('node'),
+            id: stepId,
             parentId: sid,
             systemId: sysId,
-            title: '🔼 ' + key + '：' + String((m.phase.above||{})[key] ?? ''),
-            routeGroup: 'above',
-            routeCategory: key,
+            title: stepTitle,
             status: 'todo', progress: 0,
-            x: parentXY.x + 220 + i * 380,
-            y: parentXY.y - 30 - (aboveKeys.length - j) * 18,
-            level: L,
-            startDate: iso(addDays(baseObj, m.startDay)),
-            dueDate:   iso(addDays(baseObj, Math.max(m.startDay, Math.floor((m.startDay+m.endDay)/2)))),
-            estimatedHours: Math.max(2, Math.ceil(m.days * 4 / aboveKeys.length)),
-            difficulty: 1, value: 1, weight: 5,
+            x: parentXY.x + 300 + j * 30,
+            y: parentXY.y + 70 + j * 90,
+            level: parentLevel + 2,
+            startDate: sStartISO,
+            dueDate:   sEndISO,
+            estimatedHours: stepBaseEst,
+            difficulty: 1, value: 1, weight: 10,
             createdAt: Date.now(),
           })
-        })
-        belowKeys.forEach((key, j) => {
-          nodes.push({
-            id: uid('node'),
-            parentId: sid,
-            systemId: sysId,
-            title: '🔽 ' + key + '：' + String((m.phase.below||{})[key] ?? ''),
-            routeGroup: 'below',
-            routeCategory: key,
-            status: 'todo', progress: 0,
-            x: parentXY.x + 220 + i * 380,
-            y: parentXY.y + 30 + j * 18,
-            level: L,
-            startDate: iso(addDays(baseObj, Math.ceil((m.startDay+m.endDay)/2))),
-            dueDate:   iso(addDays(baseObj, m.endDay)),
-            estimatedHours: Math.max(2, Math.ceil(m.days * 4 / belowKeys.length)),
-            difficulty: 1, value: 1, weight: 5,
-            createdAt: Date.now(),
+          // 详细内容（第三层）：知识点清单 / 学习建议 / 达成标准 三个板块
+          const sections = [
+            { title: '📚 知识点清单', items: Array.isArray(step.items) ? step.items : [] },
+            { title: '💡 学习建议',  items: step.advice ? [String(step.advice)] : [] },
+            { title: '🏁 达成标准',  items: step.standard ? [String(step.standard)] : [] },
+          ].filter(sec => sec.items.length > 0)
+          sections.forEach((sec, k) => {
+            const secId = uid('node')
+            nodes.push({
+              id: secId,
+              parentId: stepId,
+              systemId: sysId,
+              title: sec.title,
+              status: 'todo', progress: 0,
+              x: parentXY.x + 420,
+              y: parentXY.y + 60 + j * 90 + (k + 1) * 46,
+              level: parentLevel + 3,
+              startDate: sStartISO,
+              dueDate:   sEndISO,
+              estimatedHours: 2, difficulty: 1, value: 1, weight: 5,
+              createdAt: Date.now(),
+            })
+            sec.items.forEach((it, q) => {
+              nodes.push({
+                id: uid('node'),
+                parentId: secId,
+                systemId: sysId,
+                title: String(it),
+                status: 'todo', progress: 0,
+                x: parentXY.x + 520,
+                y: parentXY.y + 60 + j * 90 + (k + 1) * 46 + (q + 1) * 34,
+                level: parentLevel + 4,
+                startDate: sStartISO,
+                dueDate:   sEndISO,
+                estimatedHours: 1, difficulty: 1, value: 1, weight: 3,
+                createdAt: Date.now(),
+              })
+            })
           })
         })
-      })
-      // 3) 主线最右端旗帜节点（放在第 3 阶段 end+1 天）
-      const last = stageMetas[stageMetas.length-1]
-      const flagDay = addDays(baseObj, last.endDay+1)
-      nodes.push({
-        id: uid('node'),
-        parentId: action.rootNodeId,
-        systemId: sysId,
-        title: '🚩 ' + String(route.finalFlag || '可独立达成目标'),
-        stagePhase: 'late',
-        status: 'todo', progress: 0,
-        x: parentXY.x + 180 + stageMetas.length*380 + 80,
-        y: parentXY.y,
-        level: parentLevel + 1,
-        startDate: iso(flagDay),
-        dueDate:   iso(flagDay),
-        estimatedHours: 2, difficulty: 1, value: 1, weight: 5,
-        isRouteFlagNode: true,
-        createdAt: Date.now(),
       })
       storage.set(STORAGE_KEYS.NODES, nodes)
       return {
         ...state,
         nodes,
-        ui: { ...state.ui, undoStack: [...state.ui.undoStack, undo], redoStack: [] }
+        // 默认只显示第一层（阶段）+ 第二层（步骤）：自动展开根节点与阶段节点，步骤仍收起
+        ui: {
+          ...state.ui,
+          autoExpandIds: [action.rootNodeId, ...phaseIds],
+          // 生成后让幕布自动适配到方案时间范围（minDay=0 今天为起点）
+          focusPlan: { minDay: 0, maxDay: Math.max(6, cursor - 1), at: Date.now() },
+          undoStack: [...state.ui.undoStack, undo],
+          redoStack: [],
+        }
       }
+    }
+    // V5：追加需要自动展开的节点（AI 在阶段下生成步骤 / 在步骤下生成详情后调用）
+    case 'AUTO_EXPAND': {
+      const ids = Array.isArray(action.payload) ? action.payload : (action.payload ? [action.payload] : [])
+      if (ids.length === 0) return state
+      const merged = Array.from(new Set([...(state.ui.autoExpandIds || []), ...ids]))
+      return { ...state, ui: { ...state.ui, autoExpandIds: merged } }
+    }
+    case 'CLEAR_AUTO_EXPAND': {
+      if (!state.ui.autoExpandIds || state.ui.autoExpandIds.length === 0) return state
+      return { ...state, ui: { ...state.ui, autoExpandIds: [] } }
+    }
+    case 'CLEAR_FOCUS_PLAN': {
+      if (!state.ui.focusPlan) return state
+      return { ...state, ui: { ...state.ui, focusPlan: null } }
+    }
+    // 长期计划幕布视图快照：合并保存 windowStart/offsetY/zoom/expandedIds（切走再回来恢复）
+    case 'SAVE_VIEW_STATE': {
+      const vs = { ...(state.ui.viewState || {}), ...(action.payload || {}) }
+      return { ...state, ui: { ...state.ui, viewState: vs } }
+    }
+    // 新建幕布后：聚焦到新根节点（视图切到新幕布）
+    case 'SET_FOCUS_ROOT': {
+      return { ...state, ui: { ...state.ui, focusRootId: action.payload || null } }
+    }
+    case 'CLEAR_FOCUS_ROOT': {
+      if (!state.ui.focusRootId) return state
+      return { ...state, ui: { ...state.ui, focusRootId: null } }
     }
     case 'AI_RESTRUCTURE_NODES': {
       // 重构前保存撤销栈

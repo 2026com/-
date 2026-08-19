@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react'
+import React, { useState, useMemo, useEffect } from 'react'
 import { useAppState, useAppDispatch } from '../context/AppContext.jsx'
 import { dateUtil } from '../utils/storage.js'
 import { HABIT_DIFFICULTY } from '../utils/constants.js'
@@ -15,7 +15,20 @@ const GRID_SIZE_TEMP = 5  // 临时：一排5格（5列 × 1行）
 export default function DailyHabitsPage() {
   const state = useAppState()
   const dispatch = useAppDispatch()
-  const today = dateUtil.today()
+  const [today, setToday] = useState(() => dateUtil.today())
+
+  // 每天自动刷新日期：跨天（定时器）、切回标签页、窗口聚焦时立即更新，保证打卡按当天记录
+  useEffect(() => {
+    const update = () => setToday(dateUtil.today())
+    const timer = setInterval(update, 30 * 1000)
+    document.addEventListener('visibilitychange', update)
+    window.addEventListener('focus', update)
+    return () => {
+      clearInterval(timer)
+      document.removeEventListener('visibilitychange', update)
+      window.removeEventListener('focus', update)
+    }
+  }, [])
   const [view, setView] = useState('daily') // 'daily' | 'temp'
 
   // ---------- 弹窗控制（页面内自绘 overlay，避免 PUSH_MODAL payload 序列化炸 undoStack）----------
@@ -99,8 +112,8 @@ export default function DailyHabitsPage() {
       {/* ========== 切换按钮：日常打卡 / 临时打卡 ========== */}
       <div className="bg-slate-50 rounded-xl p-1 border border-slate-200 mb-4 grid grid-cols-2 gap-1 shrink-0">
         {[
-          { key: 'daily', label: '日常打卡' },
           { key: 'temp',  label: '临时打卡' },
+          { key: 'daily', label: '日常打卡' },
         ].map(tab => (
           <button
             key={tab.key}

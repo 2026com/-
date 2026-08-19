@@ -16,12 +16,14 @@ export default function LongTermGoalsPage() {
 
   // ====== timeFilter + 画布时间缩放（W4 移交给 MindMapCanvas 内部根据 bounds+viewport 动态算 dayW） ======
   const canvasStyle = state.settings.canvasStyle
-  const [zoom, setZoom] = useState(1)
+  const [zoom, setZoom] = useState(() => state.ui?.viewState?.zoom ?? 1)
   const [showExport, setShowExport] = useState(false)
   const [aiConfigOpen, setAiConfigOpen] = useState(false)
-  const [timeFilter, setTimeFilter] = useState('all')
+  const [timeFilter, setTimeFilter] = useState('week')
   // W2：右上角抽屉开关
   const [drawerOpen, setDrawerOpen] = useState(false)  // W2 默认收起，保持画布干净（点击右上角按钮再展开）
+  // W5：节点「编辑模式」开关（仅本页 UI 状态，不持久化；刷新恢复默认「锁定」）
+  const [editMode, setEditMode] = useState(false)
   const drawerWrapRef = useRef(null)
   const canvasRef = useRef(null)
 
@@ -150,9 +152,58 @@ export default function LongTermGoalsPage() {
         labelDate: '目标截止日期（某月某日）·节点会自动定位到这一天',
         systemId: 'zhuye',
         dropCoords,   // 双击空白处时携带屏幕像素反算的画布坐标
+        // 新建幕布：创建后把视图切到新幕布（聚焦新根节点）
+        onCreated: (newId) => dispatch({ type: 'SET_FOCUS_ROOT', payload: newId }),
       }
     })
   }
+
+  // ====== 时间视图预设：切换时同时设定缩放（本周=1x / 本月≈0.27x / 全部=按任务跨度自适应） ======
+  const applyTimeFilter = (key) => {
+    setTimeFilter(key)
+    let preset = 1
+    if (key === 'month') {
+      preset = 0.27
+    } else if (key === 'all') {
+      const today0 = new Date(); today0.setHours(0, 0, 0, 0)
+      let minI = 0, maxI = 0
+      state.nodes.forEach(n => {
+        const d = n.dueDate || n.deadline || n.startDate
+        if (d) {
+          const t = Math.round((new Date(d).setHours(0, 0, 0, 0) - today0.getTime()) / 86400000)
+          if (t < minI) minI = t
+          if (t > maxI) maxI = t
+        }
+      })
+      const span = Math.max(7, maxI - minI + 1)
+      preset = Math.max(0.03, Math.min(1, 1200 / span / 150))
+    }
+    setZoom(preset)
+  }
+
+  // ====== AI 生成执行方案后：自动把幕布缩放到「能一屏看到整个方案」并锚定今天 ======
+  const focusPlanRef = useRef(0)
+  useEffect(() => {
+    const fp = state.ui?.focusPlan
+    if (!fp || !fp.at || fp.at === focusPlanRef.current) return
+    focusPlanRef.current = fp.at
+    const span = Math.max(7, (Number(fp.maxDay) || 6) - (Number(fp.minDay) || 0) + 1)
+    setZoom(Math.max(0.03, Math.min(1, 1200 / span / 150)))
+    setTimeFilter('week')
+    dispatch({ type: 'CLEAR_FOCUS_PLAN' })
+  }, [state.ui?.focusPlan])
+
+  // 滚轮缩放（以鼠标所在处为中心）：上滚放大 / 下滚缩小
+  const handleWheelZoom = (factor) => {
+    setZoom(z => Math.max(0.03, Math.min(3, +(z * factor).toFixed(3))))
+  }
+
+  // ====== 切走页面时保存缩放快照（返回后恢复，生成的图不消失） ======
+  const zoomRef = useRef(zoom)
+  zoomRef.current = zoom
+  useEffect(() => () => {
+    dispatch({ type: 'SAVE_VIEW_STATE', payload: { zoom: zoomRef.current } })
+  }, [])
 
   const doExport = (type) => {
     setShowExport(false)
@@ -179,6 +230,32 @@ export default function LongTermGoalsPage() {
     <div className="h-full w-full flex flex-col relative overflow-hidden">
       {/* ===== 右上角：抽屉式「时间视图」面板（按钮常驻；抽屉含筛选按钮+两行时间估算） ===== */}
       <div ref={drawerWrapRef} className="absolute top-2.5 right-2.5 z-[20] flex flex-col items-end gap-2 max-w-[72%]">
+        {/* 新建幕布：创建一块独立的新幕布（= 新的顶层长期计划），在其下可创建节点 / AI 生成执行方案 */}
+        <button
+          onClick={(e) => { e.stopPropagation(); handleCreateRootNode() }}
+          className="pointer-events-auto flex items-center gap-1.5 pl-2.5 pr-3 h-8 rounded-lg bg-indigo-500 text-white hover:bg-indigo-600 shadow-sm shadow-indigo-200 transition-all touch-feedback"
+          title="新建一块独立幕布（新的顶层长期计划），可在此幕布下创建节点 / AI 生成执行方案"
+        >
+          <span className="text-[12px]" aria-hidden>🆕</span>
+          <span className="text-[11.5px] font-semibold">新建幕布</span>
+        </button>
+
+        {/* W5：节点「编辑模式」开关（默认锁定不可拖动；开启后节点可自由拖拽调整布局） */}
+        <button
+          onClick={(e) => { e.stopPropagation(); setEditMode(v => !v) }}
+          className={`pointer-events-auto flex items-center gap-1.5 pl-2 pr-2.5 h-8 rounded-lg border shadow-sm transition-all touch-feedback ${
+            editMode
+              ? 'bg-indigo-500 border-indigo-500 text-white hover:bg-indigo-600 shadow-indigo-200'
+              : 'bg-white/95 backdrop-blur-[2px] border-slate-200 text-slate-700 hover:text-indigo-600 hover:border-indigo-300'
+          }`}
+          title={editMode
+            ? '编辑模式：节点可自由拖动调整布局（点击节点标题仍可展开/收起）'
+            : '锁定模式：节点不可拖动，点击只展开/查看；开启后可拖动节点调整布局'}
+        >
+          <span className="text-[12px]" aria-hidden>{editMode ? '✏️' : '🔒'}</span>
+          <span className="text-[11.5px] font-semibold">{editMode ? '编辑模式' : '锁定模式'}</span>
+        </button>
+
         {/* 顶部常驻：打开/关闭抽屉的悬浮按钮 */}
         <button
           onClick={(e) => { e.stopPropagation(); setDrawerOpen(v => !v) }}
@@ -201,7 +278,7 @@ export default function LongTermGoalsPage() {
                   return (
                     <button
                       key={opt.key}
-                      onClick={() => setTimeFilter(opt.key)}
+                      onClick={() => applyTimeFilter(opt.key)}
                       title={opt.hint}
                       className={`flex-1 px-2 py-1.5 rounded-md text-[11px] font-semibold transition-all touch-feedback flex items-center justify-center gap-0.5 ${
                         active
@@ -257,6 +334,8 @@ export default function LongTermGoalsPage() {
           zoom={zoom}
           onCreateRootNode={handleCreateRootNode}
           timeFilter={timeFilter}
+          editMode={editMode}
+          onZoomChange={handleWheelZoom}
         />
       </div>
 
@@ -299,11 +378,8 @@ export default function LongTermGoalsPage() {
           {canvasStyle === 'lined' ? '⬜' : '📄'}
         </button>
         <div className="h-px bg-slate-100 mx-1" />
-        {/* 缩放 */}
-        <button onClick={() => setZoom(z => Math.min(2, +(z + 0.1).toFixed(2)))} className="w-9 h-9 rounded-lg hover:bg-slate-100 text-slate-600 flex items-center justify-center text-lg touch-feedback">＋</button>
+        {/* 缩放：鼠标滚轮（以鼠标所在处为中心） */}
         <div className="text-center text-[10px] text-slate-400 font-medium py-0.5 tabular-nums">{Math.round(zoom * 100)}%</div>
-        <button onClick={() => setZoom(z => Math.max(0.3, +(z - 0.1).toFixed(2)))} className="w-9 h-9 rounded-lg hover:bg-slate-100 text-slate-600 flex items-center justify-center text-lg touch-feedback">－</button>
-        <button onClick={() => setZoom(1)} className="w-9 h-9 rounded-lg hover:bg-slate-100 text-slate-600 flex items-center justify-center text-xs touch-feedback">1:1</button>
         <div className="h-px bg-slate-100 mx-1" />
         {/* 撤销/重做 AI操作专用 */}
         <button

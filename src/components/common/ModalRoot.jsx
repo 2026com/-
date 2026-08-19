@@ -1,5 +1,6 @@
 import React, { useState, useMemo } from 'react'
 import { useAppState, useAppDispatch } from '../../context/AppContext.jsx'
+import { uid } from '../../utils/storage.js'
 
 /**
  * 通用弹窗根组件（包含二次确认、撤销按钮、Toast提示、输入型Prompt、Alert、报告弹窗等）
@@ -206,14 +207,16 @@ function AddNodeWithDateModal({ cfg, close, dispatch, wrap, state }) {
         }
       })
     } else {
-      // ---- 根节点（独立大任务）：parentId=null，level=0，支持双击空白时 cfg.dropCoords 给初始 x/y
+      // ---- 根节点（独立大任务/新幕布）：parentId=null，level=0，支持双击空白时 cfg.dropCoords 给初始 x/y
       const existingRoots = (state?.nodes || []).filter(n => n.parentId == null || (n.level || 0) === 0)
       const idx = existingRoots.length
       const drop = cfg.dropCoords && typeof cfg.dropCoords.x === 'number' ? cfg.dropCoords : null
       const yGap = 320 // 每多一个根节点下移 320px，避免上下多任务重叠
+      const newNodeId = uid('node')
       dispatch({
         type: 'ADD_NODE',
         payload: {
+          id: newNodeId,
           title: t,
           parentId: null,
           systemId: cfg.systemId || 'nengli',
@@ -227,6 +230,8 @@ function AddNodeWithDateModal({ cfg, close, dispatch, wrap, state }) {
           difficulty: 1, value: 1, weight: 30,
         }
       })
+      // 新建幕布：把视图切到新幕布（父页面通过 onCreated 聚焦）
+      if (typeof cfg.onCreated === 'function') cfg.onCreated(newNodeId)
     }
     close()
   }
