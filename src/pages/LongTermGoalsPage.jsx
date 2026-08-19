@@ -27,6 +27,11 @@ export default function LongTermGoalsPage() {
   const drawerWrapRef = useRef(null)
   const canvasRef = useRef(null)
 
+  // 幕布列表：每块幕布 = 一个顶层根节点，以最初节点命名；当前激活幕布默认取第一块
+  const canvasRoots = (state.nodes || []).filter(n => !n.parentId)
+  const activeCanvasId = state.ui?.activeCanvasId || null
+  const effActiveCanvas = activeCanvasId || canvasRoots[0]?.id || null
+
   // W2：点击抽屉外部（非按钮触发区域）自动关闭
   useEffect(() => {
     function onDocClick(e) {
@@ -152,8 +157,11 @@ export default function LongTermGoalsPage() {
         labelDate: '目标截止日期（某月某日）·节点会自动定位到这一天',
         systemId: 'zhuye',
         dropCoords,   // 双击空白处时携带屏幕像素反算的画布坐标
-        // 新建幕布：创建后把视图切到新幕布（聚焦新根节点）
-        onCreated: (newId) => dispatch({ type: 'SET_FOCUS_ROOT', payload: newId }),
+        // 新建幕布：切换到新幕布（仅显示它）+ 聚焦到新幕布
+        onCreated: (newId) => {
+          dispatch({ type: 'SET_ACTIVE_CANVAS', payload: newId })
+          dispatch({ type: 'SET_FOCUS_ROOT', payload: newId })
+        },
       }
     })
   }
@@ -330,12 +338,37 @@ export default function LongTermGoalsPage() {
           background: '#ffffff',
         }}
       >
+        {/* 幕布切换器：每块幕布以最初节点命名，点击切换（各幕布独立不干扰） */}
+        {canvasRoots.length > 0 && (
+          <div className="absolute top-1.5 left-2 z-[15] flex items-center gap-1 max-w-[60%] overflow-x-auto no-scrollbar pointer-events-auto">
+            {canvasRoots.map(root => {
+              const active = effActiveCanvas === root.id
+              return (
+                <button
+                  key={root.id}
+                  onClick={() => {
+                    dispatch({ type: 'SET_ACTIVE_CANVAS', payload: root.id })
+                    dispatch({ type: 'SET_FOCUS_ROOT', payload: root.id })
+                  }}
+                  className={`shrink-0 px-2.5 h-7 rounded-md text-[11px] font-medium border transition-all touch-feedback ${
+                    active
+                      ? 'bg-indigo-600 text-white border-indigo-600'
+                      : 'bg-white/95 text-slate-600 border-slate-200 hover:border-indigo-300 hover:text-indigo-600'
+                  }`}
+                  title={active ? '当前幕布' : '切换到该幕布'}
+                >{root.title || '未命名幕布'}</button>
+              )
+            })}
+          </div>
+        )}
+
         <MindMapCanvas
           zoom={zoom}
           onCreateRootNode={handleCreateRootNode}
           timeFilter={timeFilter}
           editMode={editMode}
           onZoomChange={handleWheelZoom}
+          activeRootId={effActiveCanvas}
         />
       </div>
 

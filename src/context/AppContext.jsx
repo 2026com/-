@@ -54,6 +54,8 @@ const initialState = () => {
       viewState: null,
       // 新建幕布后要聚焦的根节点 id（切换视图到新幕布）
       focusRootId: null,
+      // 当前激活的幕布（根节点 id）：切换后只显示该幕布的节点；null=全部
+      activeCanvasId: null,
     }
   }
 }
@@ -319,6 +321,10 @@ function reducer(state, action) {
     case 'CLEAR_FOCUS_ROOT': {
       if (!state.ui.focusRootId) return state
       return { ...state, ui: { ...state.ui, focusRootId: null } }
+    }
+    // 切换当前幕布（null=显示全部）
+    case 'SET_ACTIVE_CANVAS': {
+      return { ...state, ui: { ...state.ui, activeCanvasId: action.payload || null } }
     }
     case 'AI_RESTRUCTURE_NODES': {
       // 重构前保存撤销栈

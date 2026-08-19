@@ -141,7 +141,7 @@ function buildAxisTicks({ windowStart, pxPerDay, viewportW }) {
   }
   return { unit, ticks }
 }
-export default function MindMapCanvas({ zoom = 1, onCreateRootNode, timeFilter = 'week', editMode = false, onZoomChange }) {
+export default function MindMapCanvas({ zoom = 1, onCreateRootNode, timeFilter = 'week', editMode = false, onZoomChange, activeRootId }) {
   const state = useAppState()
   const dispatch = useAppDispatch()
   const containerRef = useRef(null)
@@ -248,7 +248,16 @@ export default function MindMapCanvas({ zoom = 1, onCreateRootNode, timeFilter =
 
   const visibleIds = useMemo(() => {
     const vis = new Set()
+    const rootOf = {}
     state.nodes.forEach(n => {
+      let cur = n
+      while (cur.parentId) { const p = byId[cur.parentId]; if (!p) break; cur = p }
+      rootOf[n.id] = cur ? cur.id : n.id
+    })
+    // 幕布独立不干扰：激活某幕布时只显示该幕布（根）下的节点
+    const activeRoot = (activeRootId && byId[activeRootId]) ? activeRootId : null
+    state.nodes.forEach(n => {
+      if (activeRoot && rootOf[n.id] !== activeRoot) return
       let cur = n
       while (cur.parentId) {
         const p = byId[cur.parentId]
@@ -259,7 +268,7 @@ export default function MindMapCanvas({ zoom = 1, onCreateRootNode, timeFilter =
       vis.add(n.id)
     })
     return vis
-  }, [state.nodes, byId, isCollapsed])
+  }, [state.nodes, byId, isCollapsed, activeRootId])
 
   // ====== 硬朗时间轴模型：像素/天 缩放 + 视口窗口 ======
   const pxPerDay = BASE_PX_PER_DAY * Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, Number(zoom) || 1))
@@ -455,11 +464,12 @@ const { renderedNodes, visibleNodeIds, rootsById, stageNodesByRoot } = useMemo((
     }
   }, [state.nodes, rootsSorted, siblingsOf, byId, childrenMap, nodeDayIdx, dayToScreenX, visibleIds])
 
-  // ====== 新建幕布：把视图聚焦/切到新幕布（新根节点），之后可在其中做所有功能 ======
+  // ====== 新建幕布/切换幕布：把视图聚焦到该幕布根节点，并展开它（可看到方案） ======
   useEffect(() => {
     const rid = state.ui?.focusRootId
     if (!rid) return
     dispatch({ type: 'CLEAR_FOCUS_ROOT' })
+    setExpandedIds(prev => { const s = new Set(prev); s.add(rid); return s })
     const r = renderedNodes.find(n => n.id === rid)
     if (r) {
       const h = containerRef.current?.clientHeight || 600
