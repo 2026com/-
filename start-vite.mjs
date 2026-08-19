@@ -199,6 +199,11 @@ async function main() {
   log('   ℹ️  本脚本退出后，Vite 子进程继续后台运行不中断');
   log('');
 
+  // ====== 把最终 URL 写入 .startup-url.txt（纯 ASCII，供 .cmd 读取后打开浏览器）======
+  try {
+    fs.writeFileSync(path.resolve(__dirname, '.startup-url.txt'), url + '\n', 'ascii');
+  } catch (_) {}
+
   // 脚本 1.5 秒后退出，子进程独立
   setTimeout(() => {
     child.unref();
