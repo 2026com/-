@@ -12,6 +12,12 @@ vite.pid
 build-check.log
 vite-check.log
 vite-check.err.log
+.startup-url.txt
+cmd-run*.log
+
+# Legacy static version (archived, not used by React build)
+/app.js
+/styles.css
 
 # OS / IDE
 Thumbs.db
