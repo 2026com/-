@@ -141,12 +141,12 @@ function buildAxisTicks({ windowStart, pxPerDay, viewportW }) {
   }
   return { unit, ticks }
 }
-export default function MindMapCanvas({ zoom = 1, onCreateRootNode, timeFilter = 'week', editMode = false, onZoomChange, activeRootId }) {
+export default function MindMapCanvas({ zoom = 1, onCreateRootNode, timeFilter = 'week', editMode = false, onZoomChange, activeRootId, onViewChange }) {
   const state = useAppState()
   const dispatch = useAppDispatch()
   const containerRef = useRef(null)
-  const [windowStart, setWindowStartRaw] = useState(() => state.ui?.viewState?.windowStart ?? 0)  // 视口左缘 dayIdx（0=今天，时间轴起点）
-  const [offsetY, setOffsetY] = useState(() => state.ui?.viewState?.offsetY ?? 20)            // 纵向平移（px）
+  const [windowStart, setWindowStartRaw] = useState(() => state.ui?.canvasViews?.[activeRootId]?.windowStart ?? 0)  // 视口左缘 dayIdx（0=今天，时间轴起点）
+  const [offsetY, setOffsetY] = useState(() => state.ui?.canvasViews?.[activeRootId]?.offsetY ?? 20)            // 纵向平移（px）
   const [isPanning, setIsPanning] = useState(false)
   const [panState, setPanState] = useState(null)        // {startX, startY, startWindow, startOffsetY}
   // 历史最左可滑边界：只能滑到「今天」或「最早有任务节点的那天」（取更早者）
@@ -161,8 +161,8 @@ export default function MindMapCanvas({ zoom = 1, onCreateRootNode, timeFilter =
   const [viewportW, setViewportW] = useState(1200)
   const bgClickStartRef = useRef(null)
   const lastFilterRef = useRef({ filter: timeFilter, t: Date.now() })
-  // W5：父节点折叠/展开状态（本地 UI 状态；离开页面时保存快照，返回后恢复）
-  const [expandedIds, setExpandedIds] = useState(() => new Set(state.ui?.viewState?.expandedIds || []))
+  // W5：父节点折叠/展开状态（本地 UI 状态；按幕布保存快照，切换/返回后恢复）
+  const [expandedIds, setExpandedIds] = useState(() => new Set(state.ui?.canvasViews?.[activeRootId]?.expandedIds || []))
   // W5：编辑模式下拖拽后抑制随后的 click（避免拖动结束误触发展开/弹窗）
   const suppressClickRef = useRef(false)
 
@@ -178,19 +178,48 @@ export default function MindMapCanvas({ zoom = 1, onCreateRootNode, timeFilter =
     dispatch({ type: 'CLEAR_AUTO_EXPAND' })
   }, [state.ui?.autoExpandIds, dispatch])
 
-  // ====== 切走页面时保存幕布视图/展开快照（返回后恢复，生成的图不消失） ======
+  // ====== 切走页面时保存当前幕布视图/展开快照（返回后精确恢复，生成的图不消失） ======
   const viewSnapshotRef = useRef({ windowStart, offsetY, expandedIds })
   viewSnapshotRef.current = { windowStart, offsetY, expandedIds }
+  const activeRootRef = useRef(activeRootId)
+  activeRootRef.current = activeRootId
   useEffect(() => () => {
+    const v = viewSnapshotRef.current
     dispatch({
-      type: 'SAVE_VIEW_STATE',
+      type: 'SAVE_CANVAS_VIEW',
       payload: {
-        windowStart: viewSnapshotRef.current.windowStart,
-        offsetY: viewSnapshotRef.current.offsetY,
-        expandedIds: Array.from(viewSnapshotRef.current.expandedIds),
+        canvasId: activeRootRef.current,
+        view: { windowStart: v.windowStart, offsetY: v.offsetY, expandedIds: Array.from(v.expandedIds) },
       }
     })
   }, [])
+
+  // ====== 视图上报：windowStart/offsetY/expandedIds 变化时同步给父页（切换幕布前保存精确位置） ======
+  useEffect(() => {
+    if (typeof onViewChange === 'function') {
+      onViewChange({ windowStart, offsetY, expandedIds: Array.from(expandedIds) })
+    }
+  }, [windowStart, offsetY, expandedIds, onViewChange])
+
+  // ====== 切换幕布后恢复目标幕布的精确视图（windowStart/offsetY/expandedIds；zoom 由父页恢复） ======
+  useEffect(() => {
+    const pv = state.ui?.pendingCanvasView
+    if (!pv) return
+    if (pv.view) {
+      // 已切过的幕布：精确还原此前的位置/展开状态（不跳动、不重置）
+      suppressRecenterRef.current = true
+      const ws = Number(pv.view.windowStart)
+      setWindowStart(Number.isFinite(ws) ? ws : 0)
+      const oy = Number(pv.view.offsetY)
+      setOffsetY(Number.isFinite(oy) ? oy : 20)
+      setExpandedIds(new Set(Array.isArray(pv.view.expandedIds) ? pv.view.expandedIds : []))
+      // 安全兜底：若 zoom 未变化导致 zoom effect 未消费该标记，稍后自动清掉，避免吞掉下一次正常缩放
+      setTimeout(() => { suppressRecenterRef.current = false }, 0)
+    } else if (pv.canvasId) {
+      // 新幕布（无历史视图）：保持当前视图不动，仅展开该幕布根节点
+      setExpandedIds(prev => { const s = new Set(prev); s.add(pv.canvasId); return s })
+    }
+  }, [state.ui?.pendingCanvasView])
 
   // ====== 画布尺寸：ResizeObserver，窗口变化随时更新用于计算 dayW ======
   useEffect(() => {
@@ -464,19 +493,13 @@ const { renderedNodes, visibleNodeIds, rootsById, stageNodesByRoot } = useMemo((
     }
   }, [state.nodes, rootsSorted, siblingsOf, byId, childrenMap, nodeDayIdx, dayToScreenX, visibleIds])
 
-  // ====== 新建幕布/切换幕布：把视图聚焦到该幕布根节点，并展开它（可看到方案） ======
+  // ====== 新建幕布/切换幕布：仅展开该幕布根节点（视图位置由 canvasViews 按幕布精确恢复，不重置/不跳动） ======
   useEffect(() => {
     const rid = state.ui?.focusRootId
     if (!rid) return
     dispatch({ type: 'CLEAR_FOCUS_ROOT' })
     setExpandedIds(prev => { const s = new Set(prev); s.add(rid); return s })
-    const r = renderedNodes.find(n => n.id === rid)
-    if (r) {
-      const h = containerRef.current?.clientHeight || 600
-      setOffsetY(-(r.y || 0) + Math.min(140, h * 0.25))
-      setWindowStart(Math.max(minWindowStartRef.current, (r._dayIdx ?? 0) - 2))
-    }
-  }, [state.ui?.focusRootId, renderedNodes])
+  }, [state.ui?.focusRootId])
 
   // P1X: 路线级装饰层（每条根节点若 hasRoute=true，绘制顶部大标题/副标题、阶段 phaseLabel、最后阶段下方的黑色圆角口诀横条）
   const routeDecorations = useMemo(() => {
@@ -577,9 +600,10 @@ const centerMainPath = useMemo(() => {
       const p = getPointer(e)
       const dx = p.x - panState.startX
       const dy = p.y - panState.startY
-      // 水平拖动 → 时间窗平移（左滑看历史、右滑看未来）；垂直拖动 → 上下平移
+      // 水平拖动 → 时间窗平移（左滑看历史、右滑看未来；锁定/编辑模式均可）
       setWindowStart(panState.startWindow - dx / pxPerDay)
-      setOffsetY(panState.startOffsetY + dy)
+      // 垂直拖动 → 仅编辑模式可上下平移画布；锁定模式下图固定在幕布位置，不随上下拖动滑走
+      if (editMode) setOffsetY(panState.startOffsetY + dy)
     } else if (dragState && dragState.nodeId) {
       const p = getPointer(e)
       const rect = containerRef.current ? containerRef.current.getBoundingClientRect() : { left: 0, top: 0 }

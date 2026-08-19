@@ -14,9 +14,18 @@ export default function LongTermGoalsPage() {
   const state = useAppState()
   const dispatch = useAppDispatch()
 
+  // 幕布列表：每块幕布 = 一个顶层根节点（以最初节点命名）；当前激活幕布默认取第一块
+  const canvasRoots = (state.nodes || []).filter(n => !n.parentId)
+  const activeCanvasId = state.ui?.activeCanvasId || null
+  const effActiveCanvas = activeCanvasId || canvasRoots[0]?.id || null
+  // 当前幕布视图（windowStart/offsetY/zoom/expandedIds），切换幕布时保存/恢复精确位置
+  const canvasViewRef = useRef({ windowStart: 0, offsetY: 20, zoom: 1, expandedIds: [] })
+  const effCanvasRef = useRef(effActiveCanvas)
+  effCanvasRef.current = effActiveCanvas
+
   // ====== timeFilter + 画布时间缩放（W4 移交给 MindMapCanvas 内部根据 bounds+viewport 动态算 dayW） ======
   const canvasStyle = state.settings.canvasStyle
-  const [zoom, setZoom] = useState(() => state.ui?.viewState?.zoom ?? 1)
+  const [zoom, setZoom] = useState(() => state.ui?.canvasViews?.[effActiveCanvas]?.zoom ?? 1)
   const [showExport, setShowExport] = useState(false)
   const [aiConfigOpen, setAiConfigOpen] = useState(false)
   const [timeFilter, setTimeFilter] = useState('week')
@@ -27,10 +36,11 @@ export default function LongTermGoalsPage() {
   const drawerWrapRef = useRef(null)
   const canvasRef = useRef(null)
 
-  // 幕布列表：每块幕布 = 一个顶层根节点，以最初节点命名；当前激活幕布默认取第一块
-  const canvasRoots = (state.nodes || []).filter(n => !n.parentId)
-  const activeCanvasId = state.ui?.activeCanvasId || null
-  const effActiveCanvas = activeCanvasId || canvasRoots[0]?.id || null
+  // 视图桥接：MindMapCanvas 上报 windowStart/offsetY/expandedIds，本页保存最新视图快照
+  const handleViewChange = (v) => {
+    canvasViewRef.current = { ...canvasViewRef.current, ...v }
+  }
+  useEffect(() => { canvasViewRef.current = { ...canvasViewRef.current, zoom } }, [zoom])
 
   // W2：点击抽屉外部（非按钮触发区域）自动关闭
   useEffect(() => {
@@ -157,11 +167,8 @@ export default function LongTermGoalsPage() {
         labelDate: '目标截止日期（某月某日）·节点会自动定位到这一天',
         systemId: 'zhuye',
         dropCoords,   // 双击空白处时携带屏幕像素反算的画布坐标
-        // 新建幕布：切换到新幕布（仅显示它）+ 聚焦到新幕布
-        onCreated: (newId) => {
-          dispatch({ type: 'SET_ACTIVE_CANVAS', payload: newId })
-          dispatch({ type: 'SET_FOCUS_ROOT', payload: newId })
-        },
+        // 新建幕布：切换到新幕布（独立空白）
+        onCreated: (newId) => handleSwitchCanvas(newId),
       }
     })
   }
@@ -206,12 +213,26 @@ export default function LongTermGoalsPage() {
     setZoom(z => Math.max(0.03, Math.min(3, +(z * factor).toFixed(3))))
   }
 
-  // ====== 切走页面时保存缩放快照（返回后恢复，生成的图不消失） ======
-  const zoomRef = useRef(zoom)
-  zoomRef.current = zoom
+  // ====== 切走页面时保存当前幕布视图快照（返回后精确恢复位置/缩放/展开） ======
   useEffect(() => () => {
-    dispatch({ type: 'SAVE_VIEW_STATE', payload: { zoom: zoomRef.current } })
+    dispatch({ type: 'SAVE_CANVAS_VIEW', payload: { canvasId: effCanvasRef.current, view: { ...canvasViewRef.current } } })
   }, [])
+
+  // ====== 切换幕布：保存当前幕布视图 → 切到目标幕布 → 恢复目标幕布的精确视图 ======
+  const handleSwitchCanvas = (toId) => {
+    if (!toId || toId === effActiveCanvas) return
+    dispatch({
+      type: 'SWITCH_CANVAS',
+      payload: { fromId: effActiveCanvas, toId, fromView: { ...canvasViewRef.current } },
+    })
+  }
+  // 消费待恢复的幕布视图（zoom 由本页设置，windowStart/offsetY/expandedIds 由 MindMapCanvas 恢复）
+  useEffect(() => {
+    const pv = state.ui?.pendingCanvasView
+    if (!pv) return
+    if (pv.view) setZoom(Math.max(0.03, Math.min(3, Number(pv.view.zoom) || 1)))
+    dispatch({ type: 'CLEAR_PENDING_CANVAS_VIEW' })
+  }, [state.ui?.pendingCanvasView])
 
   const doExport = (type) => {
     setShowExport(false)
@@ -346,10 +367,7 @@ export default function LongTermGoalsPage() {
               return (
                 <button
                   key={root.id}
-                  onClick={() => {
-                    dispatch({ type: 'SET_ACTIVE_CANVAS', payload: root.id })
-                    dispatch({ type: 'SET_FOCUS_ROOT', payload: root.id })
-                  }}
+                  onClick={() => handleSwitchCanvas(root.id)}
                   className={`shrink-0 px-2.5 h-7 rounded-md text-[11px] font-medium border transition-all touch-feedback ${
                     active
                       ? 'bg-indigo-600 text-white border-indigo-600'
@@ -369,6 +387,7 @@ export default function LongTermGoalsPage() {
           editMode={editMode}
           onZoomChange={handleWheelZoom}
           activeRootId={effActiveCanvas}
+          onViewChange={handleViewChange}
         />
       </div>
 

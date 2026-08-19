@@ -1,5 +1,6 @@
 import React, { useEffect, useState, useRef } from 'react'
 import { useAppState, useAppDispatch } from '../../context/AppContext.jsx'
+import { notifyNow } from '../../utils/notify.js'
 
 /**
  * 阶段4：全局浮动计时器（番茄钟/秒表双模式）
@@ -14,19 +15,37 @@ export default function TimerWidget() {
   const [open, setOpen] = useState(false)
   const intervalRef = useRef(null)
 
+  // 派生数据（须在 hooks 之前计算，供下方 effect 使用，避免 TDZ）
+  const node = active ? state.nodes.find(n => n.id === active.nodeId) : null
+  const isPomodoro = active ? active.type === 'pomodoro' : false
+  const totalSec = active ? (isPomodoro ? (active.minutes || 25) : 0) * 60 : 0
+  const elapsed = active ? Math.max(0, Math.floor((Date.now() - (active.started || Date.now())) / 1000)) : 0
+  const remain = active ? Math.max(0, totalSec - elapsed) : 0
+
   useEffect(() => {
     if (!active) return
     intervalRef.current = setInterval(() => forceTick(t => t + 1), 1000)
     return () => clearInterval(intervalRef.current)
   }, [active?.id])
 
+  // 倒计时归零（首次）：页面内弹提醒 + 系统通知（切到后台/锁屏也能收到）
+  const doneNotifiedRef = useRef(null)
+  useEffect(() => {
+    if (!active || totalSec <= 0) return
+    if (remain > 0) return
+    if (doneNotifiedRef.current === active.id) return
+    doneNotifiedRef.current = active.id
+    const name = node?.title || '自由任务'
+    const title = isPomodoro ? '🍅 番茄钟结束' : '⏱ 计时结束'
+    const msg = isPomodoro
+      ? `「${name}」${active.minutes || 25} 分钟专注完成，休息一下吧`
+      : `「${name}」计时结束`
+    notifyNow(title, msg)
+    dispatch({ type: 'PUSH_MODAL', payload: { type: 'alert', title, message: msg } })
+  }, [remain, active?.id, totalSec])
+
   if (!active) return null
 
-  const node = state.nodes.find(n => n.id === active.nodeId)
-  const isPomodoro = active.type === 'pomodoro'
-  const totalSec = (isPomodoro ? (active.minutes || 25) : 0) * 60
-  const elapsed = Math.max(0, Math.floor((Date.now() - (active.started || Date.now())) / 1000))
-  const remain = Math.max(0, totalSec - elapsed)
   const h = Math.floor(remain / 3600), m = Math.floor((remain % 3600) / 60), s = remain % 60
   const pad = (n) => String(n).padStart(2, '0')
   const progress = totalSec > 0 ? Math.min(100, elapsed / totalSec * 100) : Math.min(100, elapsed / 3600 * 10)

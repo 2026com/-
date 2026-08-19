@@ -2,6 +2,7 @@ import React, { createContext, useContext, useReducer, useEffect, useRef } from 
 import { storage, uid, calcProgress } from '../utils/storage.js'
 import { STORAGE_KEYS, DEFAULT_SETTINGS, SEVEN_SYSTEMS, DATA_VERSION } from '../utils/constants.js'
 import { initMockData } from '../data/mockData.js'
+import { ensureNotifyPermission, notifyNow } from '../utils/notify.js'
 
 const AppStateContext = createContext(null)
 const AppDispatchContext = createContext(null)
@@ -50,8 +51,10 @@ const initialState = () => {
       autoExpandIds: [],
       // V5：AI 生成执行方案后需要自动适配的时间范围（仅内存态，不落盘）
       focusPlan: null,
-      // 长期计划幕布：视图/展开状态快照（跨页面导航保持，切走再回来不消失）
-      viewState: null,
+      // 各幕布的视图快照（每块幕布独立的 windowStart/offsetY/zoom/expandedIds，切换后精确还原）
+      canvasViews: {},
+      // 切换幕布后待恢复的视图
+      pendingCanvasView: null,
       // 新建幕布后要聚焦的根节点 id（切换视图到新幕布）
       focusRootId: null,
       // 当前激活的幕布（根节点 id）：切换后只显示该幕布的节点；null=全部
@@ -309,10 +312,37 @@ function reducer(state, action) {
       if (!state.ui.focusPlan) return state
       return { ...state, ui: { ...state.ui, focusPlan: null } }
     }
-    // 长期计划幕布视图快照：合并保存 windowStart/offsetY/zoom/expandedIds（切走再回来恢复）
-    case 'SAVE_VIEW_STATE': {
-      const vs = { ...(state.ui.viewState || {}), ...(action.payload || {}) }
-      return { ...state, ui: { ...state.ui, viewState: vs } }
+    // 保存某幕布的视图快照（精确到位置/缩放/展开）
+    case 'SAVE_CANVAS_VIEW': {
+      const { canvasId, view } = action.payload || {}
+      if (!canvasId) return state
+      return {
+        ...state,
+        ui: {
+          ...state.ui,
+          canvasViews: { ...(state.ui.canvasViews || {}), [canvasId]: { ...(state.ui.canvasViews?.[canvasId] || {}), ...(view || {}) } },
+        }
+      }
+    }
+    // 切换幕布：保存当前幕布视图 → 激活目标幕布 → 标记待恢复目标视图
+    case 'SWITCH_CANVAS': {
+      const { fromId, toId, fromView } = action.payload || {}
+      if (!toId || toId === state.ui.activeCanvasId) return state
+      const canvasViews = { ...(state.ui.canvasViews || {}) }
+      if (fromId && fromView) canvasViews[fromId] = { ...(canvasViews[fromId] || {}), ...fromView }
+      return {
+        ...state,
+        ui: {
+          ...state.ui,
+          canvasViews,
+          activeCanvasId: toId,
+          pendingCanvasView: { canvasId: toId, view: canvasViews[toId] || null },
+        }
+      }
+    }
+    case 'CLEAR_PENDING_CANVAS_VIEW': {
+      if (!state.ui.pendingCanvasView) return state
+      return { ...state, ui: { ...state.ui, pendingCanvasView: null } }
     }
     // 新建幕布后：聚焦到新根节点（视图切到新幕布）
     case 'SET_FOCUS_ROOT': {
@@ -478,7 +508,20 @@ function reducer(state, action) {
     }
 
     case 'ADD_TIMER_RECORD': {
-      const records = [...state.timerRecords, { id: uid('t'), done: false, ...action.payload, createdAt: Date.now() }]
+      const p = action.payload || {}
+      // 归一化：统一 type/started/startAt（历史数据可能只带 startAt 或缺 type，导致番茄钟不倒数/不结束）
+      const t0 = p.started || p.startAt || Date.now()
+      const rec = {
+        id: uid('t'),
+        done: false,
+        ...p,
+        type: p.type || 'pomodoro',
+        nodeId: p.nodeId || p.habitId || null,
+        started: t0,
+        startAt: t0,
+        createdAt: Date.now(),
+      }
+      const records = [...state.timerRecords, rec]
       storage.set(STORAGE_KEYS.TIMER_RECORDS, records)
       return { ...state, timerRecords: records }
     }
@@ -611,17 +654,36 @@ function recalcParentProgress(nodes, parentId, mode) {
 export function AppProvider({ children }) {
   const [state, dispatch] = useReducer(reducer, null, initialState)
 
-  // ========= T2：节点闹钟提醒轮询（全局只跑一份 interval）=========
-  // reminder 结构：{ enabled, isoTime (YYYY-MM-DDTHH:mm), notified:boolean }
-  // 存储：已经是节点属性 → nodes[n].reminder，写入节点就自动 localStorage 持久化（见 reducer 的 storage.set）。
+  // ========= T2：闹钟提醒轮询（节点闹钟 + 习惯提醒 + 临时任务提醒，全局只跑一份 interval）=========
+  // 节点闹钟 reminder 结构：{ enabled, isoTime (YYYY-MM-DDTHH:mm), notified:boolean }（持久化在节点上）
+  // 习惯 reminder = "HH:MM" 字符串；临时任务 reminderTime = "HH:MM" + reminder:boolean
+  // 触发时：页面内弹 Modal + 页面在后台时发系统通知（PWA 通知权限）
   const stateRef = useRef(state)
   stateRef.current = state
   const pollTimerRef = useRef(null)
   useEffect(() => {
+    // 首次用户交互时申请系统通知权限（浏览器要求尽量在手势里请求）
+    const requestPerm = () => ensureNotifyPermission()
+    window.addEventListener('pointerdown', requestPerm, { once: true })
+    window.addEventListener('keydown', requestPerm, { once: true })
     const checkDue = () => {
       const now = Date.now()
-      const nodes = stateRef.current.nodes || []
+      const s = stateRef.current
+      if (!s) return
+      if (s.settings?.reminderEnabled === false) return // 设置里关闭提醒 → 不扫描不打扰
+      const nodes = s.nodes || []
+      const habits = s.habits || []
+      const tempTasks = s.tempTasks || []
+      const today0 = new Date(); today0.setHours(0, 0, 0, 0)
+      const pad2 = (x) => String(x).padStart(2, '0')
+      const todayStr = `${today0.getFullYear()}-${pad2(today0.getMonth() + 1)}-${pad2(today0.getDate())}`
+      const hmDue = (hm) => {
+        const m = String(hm).match(/^(\d{2}):(\d{2})$/)
+        if (!m) return false
+        return now >= today0.getTime() + (Number(m[1]) * 3600000 + Number(m[2]) * 60000)
+      }
       const toMark = []
+      // 1) 节点闹钟
       nodes.forEach(n => {
         const r = n.reminder
         if (!r || !r.enabled || r.notified || !r.isoTime) return
@@ -630,31 +692,37 @@ export function AppProvider({ children }) {
         if (!m) return
         const d = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]), Number(m[4]), Number(m[5]), 0, 0)
         const due = d.getTime()
-        if (!Number.isNaN(due) && now >= due) toMark.push({ id: n.id, title: n.title, isoTime: r.isoTime })
+        if (!Number.isNaN(due) && now >= due) toMark.push({ id: n.id, title: n.title, isoTime: r.isoTime, kind: 'node' })
+      })
+      // 2) 习惯提醒（今日该时刻已到，且今天未提醒过）
+      habits.forEach(h => {
+        if (!h.reminder || h._notifiedDate === todayStr) return
+        if (hmDue(h.reminder)) toMark.push({ id: h.id, title: h.title, hm: h.reminder, kind: 'habit' })
+      })
+      // 3) 临时任务提醒
+      tempTasks.forEach(t => {
+        if (!t.reminderTime || t.reminder === false || t.done || t._notifiedDate === todayStr) return
+        if (hmDue(t.reminderTime)) toMark.push({ id: t.id, title: t.title, hm: t.reminderTime, kind: 'temp' })
       })
       if (toMark.length === 0) return
-      // 1) 更新节点 notified=true（持久化到 localStorage）
-      toMark.forEach(({ id }) => {
-        storage.set(STORAGE_KEYS.NODES, (stateRef.current.nodes || []).map(n =>
-          n.id === id ? { ...n, reminder: { ...(n.reminder || {}), notified: true } } : n
-        ))
+      // 标记已提醒（走 reducer 双写持久化，避免 15s 轮询重复弹）
+      toMark.forEach(item => {
+        if (item.kind === 'node') {
+          dispatch({ type: 'UPDATE_NODE', id: item.id, payload: { reminder: { ...((stateRef.current.nodes || []).find(n => n.id === item.id)?.reminder || {}), notified: true } } })
+        } else if (item.kind === 'habit') {
+          dispatch({ type: 'UPDATE_HABIT', id: item.id, payload: { _notifiedDate: todayStr } })
+        } else if (item.kind === 'temp') {
+          dispatch({ type: 'UPDATE_TEMP_TASK', id: item.id, payload: { _notifiedDate: todayStr } })
+        }
       })
-      // 注意：reducer 中 UPDATE_NODE 也会写 storage，但为了避免 15s 轮询污染
-      // 撤销栈/事件推送，我们直接改 nodes+写入后，手动 dispatch 一次 REPLACE_NODES 保证状态刷新
-      // 为了最简&不触发副作用栈，直接 dispatch UPDATE_NODE
-      toMark.forEach(({ id }) => {
-        dispatch({ type: 'UPDATE_NODE', id, payload: { reminder: { ...((stateRef.current.nodes || []).find(n => n.id === id)?.reminder || {}), notified: true } } })
-      })
-      // 2) 逐一弹出页面内提醒 Modal（ModalRoot 本身已支持队列堆叠）
-      toMark.forEach(({ title, isoTime }) => {
-        dispatch({
-          type: 'PUSH_MODAL',
-          payload: {
-            type: 'alert',
-            title: '🔔 节点闹钟提醒',
-            message: `任务「${title || '未命名节点'}」到达设定时间：${formatReminderTime(isoTime)}，请及时开始或延后。`,
-          }
-        })
+      // 页面内弹提醒 + 系统通知（页面在后台时 notifyNow 才会真正弹出系统通知）
+      toMark.forEach(item => {
+        const title = item.kind === 'node' ? '🔔 节点闹钟提醒' : '🔔 打卡提醒'
+        const message = item.kind === 'node'
+          ? `任务「${item.title || '未命名节点'}」到达设定时间：${formatReminderTime(item.isoTime)}，请及时开始或延后。`
+          : `「${item.title || '未命名任务'}」到了提醒时间 ${item.hm}，记得完成打卡哦。`
+        dispatch({ type: 'PUSH_MODAL', payload: { type: 'alert', title, message } })
+        notifyNow(title, message)
       })
     }
     // 启动：立即执行一次（避免进入页面刚好错过 15s 窗口），然后每 15 秒扫描
@@ -662,6 +730,8 @@ export function AppProvider({ children }) {
     pollTimerRef.current = setInterval(checkDue, 15 * 1000)
     return () => {
       if (pollTimerRef.current) clearInterval(pollTimerRef.current)
+      window.removeEventListener('pointerdown', requestPerm)
+      window.removeEventListener('keydown', requestPerm)
     }
     // 只在 mount/unmount 周期启动/停止，内部用 stateRef 拿最新 nodes
   }, [])
