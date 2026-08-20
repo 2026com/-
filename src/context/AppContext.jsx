@@ -2,7 +2,7 @@ import React, { createContext, useContext, useReducer, useEffect, useRef } from 
 import { storage, uid, calcProgress } from '../utils/storage.js'
 import { STORAGE_KEYS, DEFAULT_SETTINGS, SEVEN_SYSTEMS, DATA_VERSION } from '../utils/constants.js'
 import { initMockData } from '../data/mockData.js'
-import { ensureNotifyPermission, notifyNow } from '../utils/notify.js'
+import { ensureNotifyPermission, notifyNow, initNativeNotifications, scheduleNativeNotification, cancelNativeNotification } from '../utils/notify.js'
 
 const AppStateContext = createContext(null)
 const AppDispatchContext = createContext(null)
@@ -666,6 +666,85 @@ export function AppProvider({ children }) {
     const requestPerm = () => ensureNotifyPermission()
     window.addEventListener('pointerdown', requestPerm, { once: true })
     window.addEventListener('keydown', requestPerm, { once: true })
+    // 原生（Capacitor/APK）：初始化通知渠道（Android 8+，幂等）
+    initNativeNotifications()
+    // ===== 原生未来提醒调度：把 48h 内的提醒注册到 Android 系统时钟，
+    // 锁屏、应用被杀也能准时触发（PWA 纯前端无法做到）=====
+    const nativeScheduled = new Set()
+    let nativeSyncing = false
+    const isCapRun = () => {
+      try { return !!(window.Capacitor && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform()) } catch (e) { return false }
+    }
+    const syncNativeReminders = async () => {
+      const s = stateRef.current
+      if (!s) return
+      if (!isCapRun()) return
+      if (nativeSyncing) return
+      nativeSyncing = true
+      try {
+        const now = Date.now()
+        const HORIZON = 48 * 3600000
+        const today0 = new Date(); today0.setHours(0, 0, 0, 0)
+        const target = new Map() // key -> { title, body, at }
+        // 1) 节点闹钟（isoTime 未来 48h 内）
+        ;(s.nodes || []).forEach(n => {
+          const r = n.reminder
+          if (!r || !r.enabled || r.notified || !r.isoTime) return
+          const m = String(r.isoTime).match(/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})$/)
+          if (!m) return
+          const d = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]), Number(m[4]), Number(m[5]), 0, 0).getTime()
+          if (!Number.isNaN(d) && d > now && d < now + HORIZON) {
+            target.set('node:' + n.id, { title: '🔔 节点闹钟提醒', body: `任务「${n.title || '未命名节点'}」到达设定时间 ${new Date(d).toLocaleString()}，请及时开始或延后。`, at: d })
+          }
+        })
+        // 2) 习惯提醒 + 3) 临时任务提醒（HH:mm → 今天/明天最近一次）
+        const hmMs = (hm) => {
+          const m2 = String(hm).match(/^(\d{2}):(\d{2})$/)
+          if (!m2) return null
+          return Number(m2[1]) * 3600000 + Number(m2[2]) * 60000
+        }
+        const nextHmTs = (hm) => {
+          const ms = hmMs(hm)
+          if (ms == null) return null
+          let t = today0.getTime() + ms
+          if (t <= now) t += 86400000
+          return (t < now + HORIZON) ? t : null
+        }
+        ;(s.habits || []).forEach(h => {
+          if (!h.reminder) return
+          const t = nextHmTs(h.reminder)
+          if (t) target.set('habit:' + h.id, { title: '🔔 打卡提醒', body: `「${h.title || '未命名任务'}」到了提醒时间 ${h.reminder}，记得完成打卡哦。`, at: t })
+        })
+        ;(s.tempTasks || []).forEach(t => {
+          if (!t.reminderTime || t.reminder === false || t.done) return
+          const ts = nextHmTs(t.reminderTime)
+          if (ts) target.set('temp:' + t.id, { title: '🔔 临时任务提醒', body: `「${t.title || '未命名任务'}」到了提醒时间 ${t.reminderTime}，记得完成哦。`, at: ts })
+        })
+        // 4) 进行中的番茄钟（结束时提醒）
+        const act = [...(s.timerRecords || [])].reverse().find(x => !x.done)
+        if (act && act.type === 'pomodoro') {
+          const startAt = act.started ? Date.parse(act.started) : Date.now()
+          const endAt = (Number.isNaN(startAt) ? Date.now() : startAt) + (act.minutes || 25) * 60000
+          if (endAt > now && endAt < now + HORIZON) {
+            const nm = (s.nodes || []).find(n => n.id === act.nodeId)?.title || '自由任务'
+            target.set('timer:' + act.id, { title: '🍅 番茄钟结束', body: `「${nm}」${act.minutes || 25} 分钟专注完成，休息一下吧`, at: endAt })
+          }
+        }
+        // 差集同步：先取消已失效，再调度新增
+        const toCancel = [...nativeScheduled].filter(k => !target.has(k))
+        const toAdd = [...target.keys()].filter(k => !nativeScheduled.has(k))
+        for (const k of toCancel) {
+          try { await cancelNativeNotification(k) } catch (e) { /* ignore */ }
+          nativeScheduled.delete(k)
+        }
+        for (const k of toAdd) {
+          const ev = target.get(k)
+          const ok = await scheduleNativeNotification({ id: k, title: ev.title, body: ev.body, at: ev.at })
+          if (ok) nativeScheduled.add(k)
+        }
+      } catch (e) { /* 原生同步失败静默（网页环境会因 isCapRun 提前返回） */ }
+      finally { nativeSyncing = false }
+    }
     const checkDue = () => {
       const now = Date.now()
       const s = stateRef.current
@@ -724,6 +803,8 @@ export function AppProvider({ children }) {
         dispatch({ type: 'PUSH_MODAL', payload: { type: 'alert', title, message } })
         notifyNow(title, message)
       })
+      // 原生壳（APK）：把未来提醒同步注册到 Android 系统时钟（锁屏/杀进程可靠触发）
+      syncNativeReminders()
     }
     // 启动：立即执行一次（避免进入页面刚好错过 15s 窗口），然后每 15 秒扫描
     checkDue()

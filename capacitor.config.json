@@ -1,0 +1,11 @@
+{
+  "appId": "com.growth.xiaomei",
+  "appName": "成长小美",
+  "webDir": "dist",
+  "server": {
+    "androidScheme": "https"
+  },
+  "android": {
+    "allowMixedContent": false
+  }
+}

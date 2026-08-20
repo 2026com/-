@@ -15,6 +15,9 @@ vite-check.err.log
 .startup-url.txt
 cmd-run*.log
 
+# Android APK 构建产物（可随时重新构建，不入库）
+*.apk
+
 # Legacy static version (archived, not used by React build)
 /app.js
 /styles.css
