@@ -2,6 +2,7 @@ import React, { useState, useRef, useEffect, useCallback } from 'react'
 import { useAppState, useAppDispatch } from '../../context/AppContext.jsx'
 import { uid } from '../../utils/storage.js'
 import { chatCompletion } from '../../utils/aiClient.js'
+import { buildContextMessages } from '../../utils/ai/conversationManager.js'
 import AIConfigPanel from './AIConfigPanel.jsx'
 
 /**
@@ -144,20 +145,6 @@ export default function AIChatSidebar({ onOpenConfig, embedded = false }) {
     }
   }, [messages.length, expanded])
 
-  // 系统提示词（让聊天更贴近"成长助手"定位）—— 仅在首次对话时附加
-  const buildSystemPrompt = () => {
-    return {
-      role: 'system',
-      content: `你是用户的「个人成长助手」，对话简洁、落地、有可执行性，避免空泛。
-当前 APP 是一个个人成长管理系统，包含：
-- 日常打卡：日常习惯 3x3 网格 + 临时任务 5 列，点击空白方格新建；
-- 长期目标：幕布思维导图（父子级树状节点、节点带进度条、顶部日度时间轴），节点可一键下发到日常打卡；
-- AI 写执行方案：父节点输出 3~5 个宏观框架子标题，子节点输出 4~6 条具体到分钟/次数的原子动作步骤；
-- 全部数据保存在用户本地 localStorage，不会上传。
-回答中文，分点输出时建议用 1. 2. 3. 列表，避免长篇大段；遇到不确定的不要编。`
-    }
-  }
-
   // 发送消息
   const handleSend = async () => {
     const content = inputValue.trim()
@@ -169,9 +156,8 @@ export default function AIChatSidebar({ onOpenConfig, embedded = false }) {
     setInputValue('')
     setLoading(true)
 
-    // 2) 构造上下文（最近 12 条 + system prompt）
-    const history = state.aiHistory.slice(-12).map(m => ({ role: m.role, content: m.content }))
-    const messagesForApi = [buildSystemPrompt(), ...history, { role: 'user', content }]
+    // 2) 构造上下文（最近 12 条 + system prompt）—— 拆分迁移至 utils/ai/conversationManager.js
+    const messagesForApi = buildContextMessages(state.aiHistory, content)
 
     try {
       const hasFullConfig = aiConfig?.baseUrl && aiConfig?.apiKey && aiConfig?.modelId
