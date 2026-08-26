@@ -3,75 +3,21 @@ import { storage, uid, calcProgress } from '../utils/storage.js'
 import { STORAGE_KEYS, DEFAULT_SETTINGS, SEVEN_SYSTEMS, DATA_VERSION } from '../utils/constants.js'
 import { initMockData } from '../data/mockData.js'
 import { ensureNotifyPermission, notifyNow, initNativeNotifications, scheduleNativeNotification, cancelNativeNotification } from '../utils/notify.js'
+import { bootInitialState, readAllState } from './appStorage.js'
+import { habitsReducer } from './reducers/habitsReducer.js'
+import { reviewReducer } from './reducers/reviewReducer.js'
+import { aiReducer } from './reducers/aiReducer.js'
+import { collectAllDescendantIds, recalcParentProgress } from './reducers/nodeHelpers.js'
 
 const AppStateContext = createContext(null)
 const AppDispatchContext = createContext(null)
 
-const initialState = () => {
-  // 数据版本号不一致 → 结构升级 → 清除旧存储，强制重新加载最新mock示例数据
-  const savedVersion = storage.get(STORAGE_KEYS.DATA_VERSION, '')
-  if (savedVersion !== DATA_VERSION) {
-    storage.clearAll()
-    initMockData()
-    storage.set(STORAGE_KEYS.DATA_VERSION, DATA_VERSION)
-  } else {
-    // 版本匹配，但首次启动仍需初始化数据（兼容老版本无DATA_VERSION的场景）
-    const hasInit = storage.get(STORAGE_KEYS.SETTINGS)
-    if (!hasInit) {
-      initMockData()
-      storage.set(STORAGE_KEYS.DATA_VERSION, DATA_VERSION)
-    }
-  }
-  // [修复] 幕布样式归一化：历史版本 localStorage 可能缺 canvasStyle 或存了非法值，
-  // 导致画布显示成纯白。启动时统一兜底为 'lined'（横线草稿格），并回写保证后续启动一致。
-  const savedSettings = storage.get(STORAGE_KEYS.SETTINGS, DEFAULT_SETTINGS) || {}
-  const bootSettings = { ...DEFAULT_SETTINGS, ...savedSettings }
-  if (bootSettings.canvasStyle !== 'plain') bootSettings.canvasStyle = 'lined'
-  storage.set(STORAGE_KEYS.SETTINGS, bootSettings)
-  return {
-    settings: bootSettings,
-    nodes: storage.get(STORAGE_KEYS.NODES, []),
-    habits: storage.get(STORAGE_KEYS.HABITS, []),
-    tempTasks: storage.get(STORAGE_KEYS.TEMP_TASKS, []),
-    checkins: storage.get(STORAGE_KEYS.CHECKINS, {}),
-    timerRecords: storage.get(STORAGE_KEYS.TIMER_RECORDS, []),
-    aiHistory: storage.get(STORAGE_KEYS.AI_HISTORY, []),
-    aiConfig: storage.get(STORAGE_KEYS.AI_CONFIG, {
-      provider: 'deepseek',
-      baseUrl: 'https://api.deepseek.com/v1',
-      modelId: 'deepseek-chat',
-      apiKey: ''
-    }),
-    reports: storage.get(STORAGE_KEYS.REPORTS, []),
-    // UI状态
-    ui: {
-      selectedNodeId: null,
-      activeTab: 'goals',
-      calendarOpen: false,
-      dashboardOpen: false,
-      modalStack: [],
-      // AI重构撤销栈（约束规则第3条：AI操作必须可撤回）
-      undoStack: [],
-      redoStack: [],
-      // V5：AI 生成执行方案后需要自动展开的节点 id（仅内存态，不落盘）
-      autoExpandIds: [],
-      // V5：AI 生成执行方案后需要自动适配的时间范围（仅内存态，不落盘）
-      focusPlan: null,
-      // 各幕布的视图快照（每块幕布独立的 windowStart/offsetY/zoom/expandedIds，切换后精确还原）
-      canvasViews: {},
-      // 切换幕布后待恢复的视图
-      pendingCanvasView: null,
-      // 新建幕布后要聚焦的根节点 id（切换视图到新幕布）
-      focusRootId: null,
-      // [修复] 新创建节点后要滚动定位的节点 id（移动端窄视口下新节点默认落在视区外）
-      focusNodeId: null,
-      // 当前激活的幕布（根节点 id）：切换后只显示该幕布的节点；null=全部
-      activeCanvasId: null,
-    }
-  }
-}
 
 function reducer(state, action) {
+  // ====== 拆分迁移：领域 reducer 链式分发（命中即返回；未命中依次透传，与原单 switch 语义一致） ======
+  const h = habitsReducer(state, action); if (h !== state) return h
+  const r = reviewReducer(state, action); if (r !== state) return r
+  const a = aiReducer(state, action); if (a !== state) return a
   switch (action.type) {
     case 'UPDATE_SETTINGS': {
       const s = { ...state.settings, ...action.payload }
@@ -413,200 +359,6 @@ function reducer(state, action) {
       }
     }
 
-    // 习惯、打卡、计时记录
-    case 'ADD_HABIT': {
-      const habits = [...state.habits, { id: uid('hab'), ...action.payload, createdAt: Date.now() }]
-      storage.set(STORAGE_KEYS.HABITS, habits)
-      return { ...state, habits }
-    }
-    case 'UPDATE_HABIT': {
-      const habits = state.habits.map(h => h.id === action.id ? { ...h, ...action.payload } : h)
-      storage.set(STORAGE_KEYS.HABITS, habits)
-      return { ...state, habits }
-    }
-    case 'TOGGLE_CHECKIN': {
-      const { date, habitId } = action.payload
-      const key = `${date}_${habitId}`
-      const checkins = { ...state.checkins }
-      const wasChecked = !!checkins[key]
-      if (wasChecked) delete checkins[key]
-      else checkins[key] = { date, habitId, time: Date.now() }
-      storage.set(STORAGE_KEYS.CHECKINS, checkins)
-
-      // ========= T5 双向同步：日常打卡 → 幕布节点状态 & 进度 =========
-      let nodes = state.nodes
-      const habit = state.habits.find(h => h.id === habitId)
-      if (habit && habit.sourceNodeId) {
-        nodes = state.nodes.map(n => ({ ...n }))
-        const target = nodes.find(n => n.id === habit.sourceNodeId)
-        if (target) {
-          // 1) 叶子节点本身状态：全部"未来连续天数"都打卡了 → done；有任意今日及之前未打 → todo/progress
-          const nowChecked = !wasChecked  // 本次 toggle 后的结果
-          const relevantKeys = Object.keys(checkins).filter(k => k.endsWith('_' + habitId))
-          const totalDays = 7  // 以"近 7 天 + 未来"的完成度近似估状态
-          const checkedDays = relevantKeys.length
-          if (nowChecked) {
-            target.progress = 100
-            target.status = 'done'
-          } else {
-            // 取消打卡：按历史情况降级
-            const ratio = checkedDays / Math.max(1, totalDays)
-            if (ratio <= 0) { target.progress = 0; target.status = 'todo' }
-            else { target.progress = Math.max(1, Math.round(ratio * 80)); target.status = 'progress' }
-          }
-          // 2) 递归更新父节点进度（搁置/放弃已在 recalcParentProgress 内部排除）
-          if (target.parentId) recalcParentProgress(nodes, target.parentId, state.settings.progressMode)
-          storage.set(STORAGE_KEYS.NODES, nodes)
-        }
-      }
-      return { ...state, checkins, nodes }
-    }
-    case 'BATCH_CHECKIN': {
-      const { date, habitIds, value = true } = action.payload || {}
-      if (!Array.isArray(habitIds) || habitIds.length === 0) return state
-      const checkins = { ...state.checkins }
-      habitIds.forEach(habitId => {
-        const key = `${date}_${habitId}`
-        if (value) checkins[key] = { date, habitId, time: Date.now() }
-        else delete checkins[key]
-      })
-      storage.set(STORAGE_KEYS.CHECKINS, checkins)
-
-      // ========= T5 双向同步：批量打卡 → 幕布节点 =========
-      let nodes = state.nodes
-      let nodesChanged = false
-      habitIds.forEach(habitId => {
-        const habit = state.habits.find(h => h.id === habitId)
-        if (!habit || !habit.sourceNodeId) return
-        if (!nodesChanged) { nodes = state.nodes.map(n => ({ ...n })); nodesChanged = true }
-        const target = nodes.find(n => n.id === habit.sourceNodeId)
-        if (!target) return
-        if (value) {
-          target.progress = 100
-          target.status = 'done'
-        } else {
-          target.progress = 0
-          target.status = 'todo'
-        }
-        if (target.parentId) recalcParentProgress(nodes, target.parentId, state.settings.progressMode)
-      })
-      if (nodesChanged) storage.set(STORAGE_KEYS.NODES, nodes)
-      return { ...state, checkins, nodes: nodesChanged ? nodes : state.nodes }
-    }
-    case 'DELETE_HABIT': {
-      const habits = state.habits.filter(h => h.id !== action.id)
-      // 同步清理该习惯所有日期的打卡记录（避免 checkins 对象无限膨胀）
-      const suffix = `_${action.id}`
-      const checkins = { ...state.checkins }
-      Object.keys(checkins).forEach(k => {
-        if (k.endsWith(suffix)) delete checkins[k]
-      })
-      storage.set(STORAGE_KEYS.HABITS, habits)
-      storage.set(STORAGE_KEYS.CHECKINS, checkins)
-      return { ...state, habits, checkins }
-    }
-
-    // 临时打卡任务（日常/临时视图之二）
-    case 'ADD_TEMP_TASK': {
-      const tempTasks = [...state.tempTasks, { id: uid('tmp'), reminder: true, done: false, ...action.payload, createdAt: Date.now() }]
-      storage.set(STORAGE_KEYS.TEMP_TASKS, tempTasks)
-      return { ...state, tempTasks }
-    }
-    case 'UPDATE_TEMP_TASK': {
-      const tempTasks = state.tempTasks.map(t => t.id === action.id ? { ...t, ...action.payload } : t)
-      storage.set(STORAGE_KEYS.TEMP_TASKS, tempTasks)
-      return { ...state, tempTasks }
-    }
-    case 'DELETE_TEMP_TASK': {
-      const tempTasks = state.tempTasks.filter(t => t.id !== action.id)
-      storage.set(STORAGE_KEYS.TEMP_TASKS, tempTasks)
-      return { ...state, tempTasks }
-    }
-    case 'TOGGLE_TEMP_TASK_DONE': {
-      const tempTasks = state.tempTasks.map(t => t.id === action.id ? { ...t, done: !t.done, doneAt: !t.done ? Date.now() : undefined } : t)
-      storage.set(STORAGE_KEYS.TEMP_TASKS, tempTasks)
-      return { ...state, tempTasks }
-    }
-
-    case 'ADD_TIMER_RECORD': {
-      const p = action.payload || {}
-      // 归一化：统一 type/started/startAt（历史数据可能只带 startAt 或缺 type，导致番茄钟不倒数/不结束）
-      const t0 = p.started || p.startAt || Date.now()
-      const rec = {
-        id: uid('t'),
-        done: false,
-        ...p,
-        type: p.type || 'pomodoro',
-        nodeId: p.nodeId || p.habitId || null,
-        started: t0,
-        startAt: t0,
-        createdAt: Date.now(),
-      }
-      const records = [...state.timerRecords, rec]
-      storage.set(STORAGE_KEYS.TIMER_RECORDS, records)
-      return { ...state, timerRecords: records }
-    }
-    // 阶段1 修复：计时结束（TimerWidget 使用）——统一走 reducer，不再 hack localStorage + location.reload
-    case 'FINISH_TIMER_RECORD': {
-      const { id, completed = true } = action.payload || {}
-      const target = state.timerRecords.find(t => t.id === id && !t.done)
-      if (!target) return state
-      const isPomodoro = target.type === 'pomodoro'
-      const elapsedMin = Math.max(1, Math.round((Date.now() - (target.started || Date.now())) / 60000))
-      const finalMin = isPomodoro && completed ? (Number(target.minutes) || 25) : elapsedMin
-      const records = state.timerRecords.map(t =>
-        t.id === id ? { ...t, done: true, minutes: finalMin, endAt: Date.now() } : t
-      )
-      storage.set(STORAGE_KEYS.TIMER_RECORDS, records)
-      // 若该计时关联了节点，则给节点增加进度（按分钟 → 进度增量，1h ≈ 2%）
-      let nodes = state.nodes
-      if (target.nodeId && finalMin > 0) {
-        const inc = Math.min(100, Math.round(finalMin / 60 * 2))
-        nodes = state.nodes.map(n => n.id === target.nodeId
-          ? { ...n, progress: Math.min(100, Number(n.progress || 0) + inc) }
-          : n)
-        storage.set(STORAGE_KEYS.NODES, nodes)
-      }
-      return { ...state, timerRecords: records, nodes }
-    }
-
-    // AI对话历史（新版API）
-    case 'APPEND_AI_MESSAGE': {
-      const newHistory = [...state.aiHistory, action.payload.message].slice(-200)
-      storage.set(STORAGE_KEYS.AI_HISTORY, newHistory)
-      return { ...state, aiHistory: newHistory }
-    }
-    case 'RESET_AI_HISTORY': {
-      storage.set(STORAGE_KEYS.AI_HISTORY, [])
-      return { ...state, aiHistory: [] }
-    }
-    case 'UPDATE_AI_CONFIG': {
-      const newConfig = { ...state.aiConfig, ...action.payload }
-      if (newConfig.baseUrl && !/^https?:\/\//.test(newConfig.baseUrl)) {
-        return state
-      }
-      storage.set(STORAGE_KEYS.AI_CONFIG, newConfig)
-      return { ...state, aiConfig: newConfig }
-    }
-    // AI对话历史（旧API兼容别名，AIChatPanel仍在用）
-    case 'ADD_AI_MESSAGE': {
-      const msg = { id: uid('ai'), time: Date.now(), ...action.payload }
-      const newHistory = [...state.aiHistory, msg].slice(-200)
-      storage.set(STORAGE_KEYS.AI_HISTORY, newHistory)
-      return { ...state, aiHistory: newHistory }
-    }
-    case 'CLEAR_AI_HISTORY': {
-      storage.set(STORAGE_KEYS.AI_HISTORY, [])
-      return { ...state, aiHistory: [] }
-    }
-
-    // 复盘报告
-    case 'ADD_REPORT': {
-      const reports = [...state.reports, { id: uid('rpt'), ...action.payload, createdAt: Date.now() }]
-      storage.set(STORAGE_KEYS.REPORTS, reports)
-      return { ...state, reports }
-    }
-
     // UI控制
     case 'TOGGLE_CALENDAR':
       return { ...state, ui: { ...state.ui, calendarOpen: !state.ui.calendarOpen } }
@@ -627,59 +379,16 @@ function reducer(state, action) {
     case 'IMPORT_ALL': {
       const { payload } = action
       Object.entries(payload).forEach(([k, v]) => storage.set(k, v))
-      return {
-        settings: storage.get(STORAGE_KEYS.SETTINGS, DEFAULT_SETTINGS),
-        nodes: storage.get(STORAGE_KEYS.NODES, []),
-        habits: storage.get(STORAGE_KEYS.HABITS, []),
-        tempTasks: storage.get(STORAGE_KEYS.TEMP_TASKS, []),
-        checkins: storage.get(STORAGE_KEYS.CHECKINS, {}),
-        timerRecords: storage.get(STORAGE_KEYS.TIMER_RECORDS, []),
-        aiHistory: storage.get(STORAGE_KEYS.AI_HISTORY, []),
-        aiConfig: storage.get(STORAGE_KEYS.AI_CONFIG, {
-          provider: 'deepseek',
-          baseUrl: 'https://api.deepseek.com/v1',
-          modelId: 'deepseek-chat',
-          apiKey: ''
-        }),
-        reports: storage.get(STORAGE_KEYS.REPORTS, []),
-        ui: state.ui
-      }
+      // 拆分迁移：全量状态重建读取 → appStorage.readAllState（逻辑等价）
+      return readAllState(state.ui)
     }
 
     default:
       return state
   }
 }
-
-// 收集某节点及其所有后代ID
-function collectAllDescendantIds(nodes, rootId) {
-  const ids = new Set([rootId])
-  let changed = true
-  while (changed) {
-    changed = false
-    nodes.forEach(n => {
-      if (n.parentId && ids.has(n.parentId) && !ids.has(n.id)) {
-        ids.add(n.id)
-        changed = true
-      }
-    })
-  }
-  return ids
-}
-
-// 递归更新父级进度
-// T1：先过滤 paused / aborted（同 calcProgress 一致，避免分子分母漂移）
-const EXCLUDED_FOR_PARENT = new Set(['paused', 'aborted'])
-function recalcParentProgress(nodes, parentId, mode) {
-  const parent = nodes.find(n => n.id === parentId)
-  if (!parent) return
-  const children = nodes.filter(n => n.parentId === parentId && !EXCLUDED_FOR_PARENT.has(n.status))
-  parent.progress = calcProgress(children, mode)
-  if (parent.parentId) recalcParentProgress(nodes, parent.parentId, mode)
-}
-
 export function AppProvider({ children }) {
-  const [state, dispatch] = useReducer(reducer, null, initialState)
+  const [state, dispatch] = useReducer(reducer, null, bootInitialState)
 
   // ========= T2：闹钟提醒轮询（节点闹钟 + 习惯提醒 + 临时任务提醒，全局只跑一份 interval）=========
   // 节点闹钟 reminder 结构：{ enabled, isoTime (YYYY-MM-DDTHH:mm), notified:boolean }（持久化在节点上）
