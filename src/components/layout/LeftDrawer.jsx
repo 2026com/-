@@ -2,7 +2,7 @@ import React, { useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAppState, useAppDispatch } from '../../context/AppContext.jsx'
 import { getSEVEN_SYSTEMS_EFFECTIVE } from '../../utils/constants.js'
-import AIChatSidebar from '../ai/AIChatSidebar.jsx'
+import AIChatSidebar from '../../modules/ai-assistant/components/ChatInterface.jsx'
 
 /**
  * 左侧全局可收起抽屉 双模式一键切换（V2：只保留 7 个指定系统）

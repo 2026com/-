@@ -4,9 +4,9 @@ import { STORAGE_KEYS, DEFAULT_SETTINGS, SEVEN_SYSTEMS, DATA_VERSION } from '../
 import { initMockData } from '../data/mockData.js'
 import { ensureNotifyPermission, notifyNow, initNativeNotifications, scheduleNativeNotification, cancelNativeNotification } from '../utils/notify.js'
 import { bootInitialState, readAllState } from './appStorage.js'
-import { habitsReducer } from './reducers/habitsReducer.js'
+import { dailyTasksReducer } from './reducers/dailyTasksReducer.js'
 import { reviewReducer } from './reducers/reviewReducer.js'
-import { aiReducer } from './reducers/aiReducer.js'
+import { aiAssistantReducer } from './reducers/aiAssistantReducer.js'
 import { collectAllDescendantIds, recalcParentProgress } from './reducers/nodeHelpers.js'
 
 const AppStateContext = createContext(null)
@@ -15,9 +15,9 @@ const AppDispatchContext = createContext(null)
 
 function reducer(state, action) {
   // ====== 拆分迁移：领域 reducer 链式分发（命中即返回；未命中依次透传，与原单 switch 语义一致） ======
-  const h = habitsReducer(state, action); if (h !== state) return h
+  const h = dailyTasksReducer(state, action); if (h !== state) return h
   const r = reviewReducer(state, action); if (r !== state) return r
-  const a = aiReducer(state, action); if (a !== state) return a
+  const a = aiAssistantReducer(state, action); if (a !== state) return a
   switch (action.type) {
     case 'UPDATE_SETTINGS': {
       const s = { ...state.settings, ...action.payload }
