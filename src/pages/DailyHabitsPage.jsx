@@ -2,9 +2,9 @@ import React, { useState, useMemo, useEffect } from 'react'
 import { useAppState, useAppDispatch } from '../context/AppContext.jsx'
 import { dateUtil } from '../utils/storage.js'
 import { HABIT_DIFFICULTY } from '../utils/constants.js'
-
-const GRID_SIZE_DAILY = 9 // 日常：3列 × 3行 = 9张卡片
-const GRID_SIZE_TEMP = 5  // 临时：一排5格（5列 × 1行）
+import { DailySection, TempSection, GRID_SIZE_DAILY, GRID_SIZE_TEMP } from '../components/habits/CheckinSections.jsx'
+import BatchCheckinModal from '../components/habits/BatchCheckinModal.jsx'
+import PomodoroModal from '../components/habits/PomodoroModal.jsx'
 
 /**
  * 双页打卡真实交互版
@@ -137,108 +137,20 @@ export default function DailyHabitsPage() {
             view === 'daily' ? 'opacity-100 translate-x-0 pointer-events-auto' : 'opacity-0 -translate-x-4 pointer-events-none'
           }`}
         >
-          {/* 操作区（T4 已删除「新增习惯」按钮：空格直接新建） */}
-          <div className="flex items-center gap-2 mb-3 flex-wrap">
-            <button
-              onClick={() => {
-                if (state.habits.length === 0) { toast('请先新增一个习惯，再启动番茄计时'); return }
-                setPomodoroOpen(true)
-              }}
-              className="px-3 py-2 text-xs font-medium bg-rose-50 text-rose-700 rounded-lg hover:bg-rose-100 touch-feedback"
-            >番茄计时</button>
-            <button
-              onClick={() => {
-                if (state.habits.length === 0) { toast('暂无习惯可以批量打卡'); return }
-                setBatchOpen(true)
-              }}
-              className="px-3 py-2 text-xs font-medium bg-emerald-50 text-emerald-700 rounded-lg hover:bg-emerald-100 touch-feedback"
-            >批量打卡</button>
-            <div className="flex-1" />
-            <div className="text-xs text-slate-400">{state.habits.length}/{GRID_SIZE_DAILY} · 日常习惯</div>
-          </div>
-
-          {/* 3列 × 3行 卡片矩阵（T4：点击空格直接新建；点击有卡主体编辑；左上角独立勾选框打卡） */}
-          <div className="grid grid-cols-3 gap-3">
-            {Array.from({ length: GRID_SIZE_DAILY }).map((_, i) => {
-              const habit = state.habits[i]
-              const checked = habit && !!state.checkins[`${today}_${habit.id}`]
-              const diff = habit ? HABIT_DIFFICULTY.find(d => d.k === (habit.difficulty || 'normal')) : null
-              return (
-                <div
-                  key={i}
-                  className={`
-                    group relative rounded-xl border p-3 flex flex-col transition-all touch-feedback aspect-[4/3.5]
-                    bg-slate-50 border-slate-200 hover:border-slate-300
-                    ${habit ? 'cursor-pointer' : 'cursor-add'}
-                    ${checked ? 'ring-2 ring-emerald-400 border-emerald-300 bg-emerald-50/50' : ''}
-                  `}
-                  onClick={() => {
-                    if (!habit) { setAddHabitOpen(true); return }
-                    setEditHabitId(habit.id)
-                  }}
-                >
-                  {habit ? (
-                    <>
-                      {/* T4：左上角独立打卡勾选框（三区分离：1.打卡 2.主体编辑 3.右上角编辑/删除） */}
-                      <button
-                        className="absolute top-2 left-2 w-6 h-6 rounded-md border-2 flex items-center justify-center text-xs transition-all z-10"
-                        style={{
-                          background: checked ? '#10b981' : '#fff',
-                          borderColor: checked ? '#10b981' : '#cbd5e1',
-                          color: checked ? '#fff' : '#cbd5e1'
-                        }}
-                        title={checked ? '已完成（点击取消）' : '点击打卡'}
-                        onClick={(e) => {
-                          e.stopPropagation()
-                          dispatch({ type: 'TOGGLE_CHECKIN', payload: { date: today, habitId: habit.id } })
-                        }}
-                      >{checked ? '✓' : ''}</button>
-
-                      {/* 右上角操作图标（备选入口，保留不变） */}
-                      <div className="absolute top-2 right-2 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity z-10">
-                        <button
-                          className="w-6 h-6 rounded-md bg-white/90 border border-slate-200 text-slate-600 hover:bg-indigo-50 hover:text-indigo-600 flex items-center justify-center text-xs"
-                          title="编辑"
-                          onClick={(e) => { e.stopPropagation(); setEditHabitId(habit.id) }}
-                        >✏️</button>
-                        <button
-                          className="w-6 h-6 rounded-md bg-white/90 border border-slate-200 text-slate-600 hover:bg-rose-50 hover:text-rose-600 flex items-center justify-center text-xs"
-                          title="删除"
-                          onClick={(e) => { e.stopPropagation(); confirmHabitDelete(habit) }}
-                        >🗑️</button>
-                      </div>
-
-                      {/* 标题（左侧预留 28px 勾选框空间） */}
-                      <div className={`text-sm font-semibold leading-snug pl-8 pr-12 break-words ${checked ? 'line-through text-emerald-700' : 'text-slate-800'}`}>
-                        {habit.title}
-                      </div>
-
-                      {/* 底部：时长 + 难度 + 勾选图标 */}
-                      <div className="mt-auto pl-8 flex items-end justify-between">
-                        <div className="flex flex-col gap-1">
-                          <div className="text-[11px] text-slate-500">
-                            {habit.estMinutes ? `${habit.estMinutes} 分钟` : ''}
-                            {habit.reminder ? ` · 🔔 ${habit.reminder}` : ''}
-                          </div>
-                          {diff && (
-                            <span className="text-[10px] text-slate-400">{diff.badge}</span>
-                          )}
-                        </div>
-                        <div className="text-base">
-                          {checked ? <span className="text-emerald-500">✓</span> : <span className="text-slate-300">⌄</span>}
-                        </div>
-                      </div>
-                    </>
-                  ) : (
-                    <div className="h-full flex flex-col items-center justify-center text-center gap-1.5 text-slate-400">
-                      <span className="text-2xl leading-none">＋</span>
-                      <span className="text-[11px] leading-tight">空白卡片<br />点击直接新建</span>
-                    </div>
-                  )}
-                </div>
-              )
-            })}
-          </div>
+          {/* 打卡列表（日常）—— 拆分迁移至 components/habits/CheckinSections.jsx */}
+          <DailySection
+            visible={view === 'daily'}
+            habits={state.habits}
+            checkins={state.checkins}
+            today={today}
+            dispatch={dispatch}
+            toast={toast}
+            confirmHabitDelete={confirmHabitDelete}
+            onOpenPomodoro={() => setPomodoroOpen(true)}
+            onOpenBatch={() => setBatchOpen(true)}
+            onCreateHabit={() => setAddHabitOpen(true)}
+            onEditHabit={(id) => setEditHabitId(id)}
+          />
         </section>
 
         {/* --- 视图2：临时打卡（一排5格，最多5卡）--- */}
@@ -247,90 +159,15 @@ export default function DailyHabitsPage() {
             view === 'temp' ? 'opacity-100 translate-x-0 pointer-events-auto' : 'opacity-0 translate-x-4 pointer-events-none'
           }`}
         >
-          {/* 操作区（T4 已删除「新增临时任务」按钮：空格直接新建） */}
-          <div className="flex items-center justify-between mb-3">
-            <div className="text-xs text-slate-500">今日临时事项 · 一排 5 格</div>
-            <div className="text-xs text-slate-400">{state.tempTasks.length}/{GRID_SIZE_TEMP}</div>
-          </div>
-
-          {/* 1 排 5 列 卡片矩阵（T4：点击空格直接新建；点击有卡主体编辑；左上角独立勾选框打卡） */}
-          <div className="grid grid-cols-5 gap-3">
-            {Array.from({ length: GRID_SIZE_TEMP }).map((_, i) => {
-              const task = state.tempTasks[i]
-              const done = !!task?.done
-              return (
-                <div
-                  key={i}
-                  className={`
-                    group relative rounded-xl border p-2.5 flex flex-col transition-all touch-feedback aspect-[3/4]
-                    bg-slate-50 border-slate-200 hover:border-slate-300
-                    ${task ? 'cursor-pointer' : 'cursor-add'}
-                    ${done ? 'ring-2 ring-emerald-400 border-emerald-300 bg-emerald-50/50' : ''}
-                  `}
-                  onClick={() => {
-                    if (!task) { setAddTempOpen(true); return }
-                    setEditTempId(task.id)
-                  }}
-                >
-                  {task ? (
-                    <>
-                      {/* T4：左上角独立完成勾选框（三区分离：1.打卡 2.主体编辑 3.右上角编辑/删除） */}
-                      <button
-                        className="absolute top-1.5 left-1.5 w-5 h-5 rounded-md border-2 flex items-center justify-center text-[10px] transition-all z-10"
-                        style={{
-                          background: done ? '#10b981' : '#fff',
-                          borderColor: done ? '#10b981' : '#cbd5e1',
-                          color: done ? '#fff' : '#cbd5e1'
-                        }}
-                        title={done ? '已完成（点击取消）' : '点击打卡完成'}
-                        onClick={(e) => {
-                          e.stopPropagation()
-                          dispatch({ type: 'TOGGLE_TEMP_TASK_DONE', id: task.id })
-                        }}
-                      >{done ? '✓' : ''}</button>
-
-                      {/* 右上角图标（备选入口，保留不变） */}
-                      <div className="absolute top-1.5 right-1.5 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity z-10">
-                        <button
-                          className="w-5 h-5 rounded-md bg-white/90 border border-slate-200 text-slate-600 hover:bg-indigo-50 hover:text-indigo-600 flex items-center justify-center text-[10px]"
-                          title="编辑"
-                          onClick={(e) => { e.stopPropagation(); setEditTempId(task.id) }}
-                        >✏️</button>
-                        <button
-                          className="w-5 h-5 rounded-md bg-white/90 border border-slate-200 text-slate-600 hover:bg-rose-50 hover:text-rose-600 flex items-center justify-center text-[10px]"
-                          title="删除"
-                          onClick={(e) => { e.stopPropagation(); confirmTempDelete(task) }}
-                        >🗑️</button>
-                      </div>
-
-                      {/* 标题（左上预留 26px 勾选框） */}
-                      <div className={`text-[12px] font-semibold leading-snug break-words mt-7 ${done ? 'line-through text-emerald-700' : 'text-slate-800'}`}>
-                        {task.title}
-                      </div>
-
-                      {/* 底部：时间 + 铃铛 */}
-                      <div className="mt-auto flex items-center justify-between">
-                        <div className="text-[10px] text-slate-500">{task.reminderTime || '全天'}</div>
-                        {done ? <span className="text-[12px] text-emerald-500">✓</span> : (
-                          task.reminder !== false && <span className="text-[11px] text-slate-400">🔔</span>
-                        )}
-                      </div>
-                    </>
-                  ) : (
-                    <div className="h-full flex flex-col items-center justify-center text-center gap-1 text-slate-400">
-                      <span className="text-xl leading-none">＋</span>
-                      <span className="text-[10px] leading-tight">空位 · 点击新建</span>
-                    </div>
-                  )}
-                </div>
-              )
-            })}
-          </div>
-
-          {/* 大面积留白：简洁低压力 */}
-          <div className="mt-16 text-center text-xs text-slate-400">
-            · 保持空白，聚焦当下 ·
-          </div>
+          {/* 打卡列表（临时）—— 拆分迁移至 components/habits/CheckinSections.jsx */}
+          <TempSection
+            visible={view === 'temp'}
+            tempTasks={state.tempTasks}
+            dispatch={dispatch}
+            confirmTempDelete={confirmTempDelete}
+            onCreateTemp={() => setAddTempOpen(true)}
+            onEditTemp={(id) => setEditTempId(id)}
+          />
         </section>
       </div>
 
@@ -453,7 +290,7 @@ export default function DailyHabitsPage() {
 }
 
 /* ============================================================================
- *  下方为子组件：FormModal / HabitForm / TempForm / BatchCheckinModal / PomodoroModal
+ *  表单子组件：FormModal / HabitForm / TempForm（BatchCheckinModal / PomodoroModal 已拆分至 components/habits/，打卡列表已拆分至 CheckinSections.jsx）
  *  全部自绘，不经过 ModalRoot.payload 传递，避免 JSON clone 序列化风险
  * ========================================================================= */
 
@@ -629,133 +466,5 @@ function TempForm({ initial, onClose, onSubmit }) {
         >确认提交</button>
       </div>
     </form>
-  )
-}
-
-/** 批量打卡弹窗 */
-function BatchCheckinModal({ habits, checkins, today, onClose, onSubmit }) {
-  const [selected, setSelected] = useState(() => {
-    // 默认勾选出今日未完成的习惯
-    return habits.filter(h => !checkins[`${today}_${h.id}`]).map(h => h.id)
-  })
-  const toggle = (id) => {
-    setSelected(s => s.includes(id) ? s.filter(x => x !== id) : [...s, id])
-  }
-  const allIds = habits.map(h => h.id)
-
-  return (
-    <div
-      className="fixed inset-0 z-40 flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm animate-in fade-in"
-      onClick={onClose}
-    >
-      <div
-        className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden animate-in zoom-in-95 duration-200"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="px-5 pt-5 pb-3 border-b border-slate-100 flex items-center justify-between">
-          <div className="text-base font-bold text-slate-800">✅ 批量打卡 · {habits.length} 个习惯</div>
-          <button onClick={onClose} className="w-7 h-7 rounded-lg hover:bg-slate-100 text-slate-500 flex items-center justify-center text-lg">×</button>
-        </div>
-        <div className="p-5 max-h-80 overflow-y-auto no-scrollbar space-y-2">
-          {habits.length === 0 && <div className="text-center text-sm text-slate-400 py-6">暂无习惯</div>}
-          {habits.map(h => {
-            const done = !!checkins[`${today}_${h.id}`]
-            const isSel = selected.includes(h.id) || done
-            return (
-              <label
-                key={h.id}
-                className={`flex items-center gap-3 p-3 rounded-lg border ${done ? 'bg-emerald-50 border-emerald-200' : 'bg-slate-50 border-slate-200'} cursor-pointer hover:border-indigo-300`}
-              >
-                <input
-                  type="checkbox"
-                  checked={isSel}
-                  disabled={done}
-                  onChange={() => !done && toggle(h.id)}
-                  className="w-4 h-4 accent-emerald-600"
-                />
-                <div className="flex-1">
-                  <div className={`text-sm font-medium ${done ? 'line-through text-emerald-600' : 'text-slate-800'}`}>{h.title}</div>
-                  <div className="text-[11px] text-slate-500">
-                    {h.estMinutes ? `${h.estMinutes} 分钟` : ''}
-                    {h.reminder ? ` · 🔔 ${h.reminder}` : ''}
-                    {done ? ' · 今日已完成' : ''}
-                  </div>
-                </div>
-              </label>
-            )
-          })}
-        </div>
-        <div className="px-5 pb-5 flex gap-2 justify-end">
-          <button onClick={onClose} className="px-4 py-2 rounded-lg text-sm bg-slate-100 hover:bg-slate-200 text-slate-700 touch-feedback">取消</button>
-          <button
-            onClick={() => {
-              // 一键全部打卡：包含今日已完成和未完成的所有ID（已完成的checkin不会重复写入因为是相同 key，但这里 value=true 覆盖也行，没副作用）
-              onSubmit(allIds, true)
-            }}
-            className="px-4 py-2 rounded-lg text-sm bg-emerald-100 hover:bg-emerald-200 text-emerald-700 touch-feedback"
-          >一键全部打卡</button>
-          <button
-            onClick={() => onSubmit(selected, false)}
-            className="px-4 py-2 rounded-lg text-sm bg-indigo-600 hover:bg-indigo-500 text-white font-medium touch-feedback"
-          >确认勾选打卡 {selected.length > 0 ? `(${selected.length})` : ''}</button>
-        </div>
-      </div>
-    </div>
-  )
-}
-
-/** 番茄计时弹窗（极简版：选习惯+启动，不做倒计时挂钟） */
-function PomodoroModal({ habits, onClose, onSubmit }) {
-  const [habitId, setHabitId] = useState(habits[0]?.id || '')
-  const [minutes, setMinutes] = useState(25)
-  return (
-    <div
-      className="fixed inset-0 z-40 flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm animate-in fade-in"
-      onClick={onClose}
-    >
-      <div
-        className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden animate-in zoom-in-95 duration-200"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="px-5 pt-5 pb-3 border-b border-slate-100 flex items-center justify-between">
-          <div className="text-base font-bold text-slate-800">🍅 番茄计时 · 启动</div>
-          <button onClick={onClose} className="w-7 h-7 rounded-lg hover:bg-slate-100 text-slate-500 flex items-center justify-center text-lg">×</button>
-        </div>
-        <div className="p-5 space-y-4">
-          <div>
-            <label className="text-xs text-slate-600 mb-1 block">选择要专注的习惯</label>
-            <select
-              value={habitId}
-              onChange={(e) => setHabitId(e.target.value)}
-              className="w-full px-3 py-2.5 rounded-lg border border-slate-200 bg-slate-50 text-sm focus:outline-none focus:border-rose-400"
-            >
-              {habits.map(h => <option key={h.id} value={h.id}>{h.title}</option>)}
-            </select>
-          </div>
-          <div>
-            <label className="text-xs text-slate-600 mb-1 block">专注时长（分钟）</label>
-            <div className="grid grid-cols-4 gap-2">
-              {[15, 25, 45, 60].map(m => (
-                <button
-                  key={m}
-                  type="button"
-                  onClick={() => setMinutes(m)}
-                  className={`py-2 rounded-lg text-xs font-medium border ${
-                    minutes === m ? 'bg-rose-500 text-white border-rose-500' : 'bg-slate-50 text-slate-700 border-slate-200 hover:border-rose-300'
-                  }`}
-                >{m}分钟</button>
-              ))}
-            </div>
-          </div>
-          <div className="flex gap-2 justify-end pt-1">
-            <button onClick={onClose} className="px-4 py-2 rounded-lg text-sm bg-slate-100 hover:bg-slate-200 text-slate-700 touch-feedback">取消</button>
-            <button
-              onClick={() => habitId && onSubmit(habitId, minutes)}
-              className="px-4 py-2 rounded-lg text-sm bg-rose-500 hover:bg-rose-400 text-white font-medium touch-feedback"
-            >🚀 开始专注</button>
-          </div>
-        </div>
-      </div>
-    </div>
   )
 }
