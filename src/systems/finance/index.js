@@ -1,1 +1,2 @@
-/** 系统：财务记账 模块入口（建设中，占位） */`nexport {}`n
+/** 财务记账（系统三）模块入口 */
+export { default as FinancePage } from './components/FinancePage.jsx'

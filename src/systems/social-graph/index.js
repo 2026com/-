@@ -1,1 +1,2 @@
-/** 系统：人际关系网络 模块入口（建设中，占位） */`nexport {}`n
+/** 人际关系网络（系统四）模块入口 */
+export { default as SocialGraphPage } from './components/SocialGraphPage.jsx'

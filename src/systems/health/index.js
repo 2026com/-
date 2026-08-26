@@ -1,1 +1,2 @@
-/** 系统：身体状态 模块入口（建设中，占位） */`nexport {}`n
+/** 身体状态（系统六）模块入口 */
+export { default as HealthPage } from './components/HealthPage.jsx'

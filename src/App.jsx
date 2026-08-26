@@ -12,6 +12,13 @@ import ExportToolsMount from './utils/exportTools.jsx'
 import SystemPlaceholder from './shared/components/SystemPlaceholder.jsx'
 // 系统一：日常待办（含长期目标横线本 / 历史复盘）
 import { DailyHabitsPage, LongTermGoalsPage, HistoryReviewPage } from './systems/daily-tasks/index.js'
+// 系统二~七：骨架页已就位（功能开发时替换各 Page 组件内容）
+import { SkillTreePage } from './systems/skill-tree/index.js'
+import { FinancePage } from './systems/finance/index.js'
+import { SocialGraphPage } from './systems/social-graph/index.js'
+import { KnowledgeBasePage } from './systems/knowledge-base/index.js'
+import { HealthPage } from './systems/health/index.js'
+import { MindCommunityPage } from './systems/mind-community/index.js'
 import { useAppState, useAppDispatch } from './context/AppContext.jsx'
 
 export default function App() {
@@ -46,13 +53,13 @@ export default function App() {
               <Route path="/goals" element={<LongTermGoalsPage />} />
               <Route path="/review" element={<HistoryReviewPage />} />
 
-              {/* ===== 系统二~七：建设中占位（按系统逐个迁移后替换） ===== */}
-              <Route path="/skill-tree" element={<SystemPlaceholder name="技能树" icon="🌳" description="系统二 · 建设中" />} />
-              <Route path="/finance" element={<SystemPlaceholder name="财务记账" icon="💰" description="系统三 · 建设中" />} />
-              <Route path="/social-graph" element={<SystemPlaceholder name="人际关系网络" icon="🕸️" description="系统四 · 建设中" />} />
-              <Route path="/knowledge-base" element={<SystemPlaceholder name="3D 知识库" icon="🧠" description="系统五 · 建设中" />} />
-              <Route path="/health" element={<SystemPlaceholder name="身体状态" icon="❤️" description="系统六 · 建设中" />} />
-              <Route path="/mind-community" element={<SystemPlaceholder name="情绪心理 + 社区聊天" icon="💬" description="系统七 · 建设中" />} />
+              {/* ===== 系统二~七：骨架页（按系统逐个开发后替换内容） ===== */}
+              <Route path="/skill-tree" element={<SkillTreePage />} />
+              <Route path="/finance" element={<FinancePage />} />
+              <Route path="/social-graph" element={<SocialGraphPage />} />
+              <Route path="/knowledge-base" element={<KnowledgeBasePage />} />
+              <Route path="/health" element={<HealthPage />} />
+              <Route path="/mind-community" element={<MindCommunityPage />} />
 
               <Route path="*" element={<Navigate to="/goals" replace />} />
             </Routes>

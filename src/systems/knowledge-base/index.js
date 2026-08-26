@@ -1,1 +1,2 @@
-/** 系统：3D知识库 模块入口（建设中，占位） */`nexport {}`n
+/** 3D知识库（系统五）模块入口 */
+export { default as KnowledgeBasePage } from './components/KnowledgeBasePage.jsx'

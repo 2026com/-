@@ -1,1 +1,2 @@
-/** 系统：技能树 模块入口（建设中，占位） */`nexport {}`n
+/** 技能树（系统二）模块入口 */
+export { default as SkillTreePage } from './components/SkillTreePage.jsx'

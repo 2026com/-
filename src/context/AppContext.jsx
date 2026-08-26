@@ -7,6 +7,12 @@ import { bootInitialState, readAllState } from './appStorage.js'
 import { dailyTasksReducer } from './reducers/dailyTasksReducer.js'
 import { reviewReducer } from './reducers/reviewReducer.js'
 import { aiAssistantReducer } from './reducers/aiAssistantReducer.js'
+import { skillTreeReducer } from './reducers/skillTreeReducer.js'
+import { financeReducer } from './reducers/financeReducer.js'
+import { socialGraphReducer } from './reducers/socialGraphReducer.js'
+import { knowledgeBaseReducer } from './reducers/knowledgeBaseReducer.js'
+import { healthReducer } from './reducers/healthReducer.js'
+import { mindCommunityReducer } from './reducers/mindCommunityReducer.js'
 import { collectAllDescendantIds, recalcParentProgress } from './reducers/nodeHelpers.js'
 
 const AppStateContext = createContext(null)
@@ -18,6 +24,13 @@ function reducer(state, action) {
   const h = dailyTasksReducer(state, action); if (h !== state) return h
   const r = reviewReducer(state, action); if (r !== state) return r
   const a = aiAssistantReducer(state, action); if (a !== state) return a
+  // 系统二~七：占位 reducer（恒等返回，接入实际功能后在此实现各自领域 state 更新）
+  const s1 = skillTreeReducer(state, action); if (s1 !== state) return s1
+  const s2 = financeReducer(state, action); if (s2 !== state) return s2
+  const s3 = socialGraphReducer(state, action); if (s3 !== state) return s3
+  const s4 = knowledgeBaseReducer(state, action); if (s4 !== state) return s4
+  const s5 = healthReducer(state, action); if (s5 !== state) return s5
+  const s6 = mindCommunityReducer(state, action); if (s6 !== state) return s6
   switch (action.type) {
     case 'UPDATE_SETTINGS': {
       const s = { ...state.settings, ...action.payload }
