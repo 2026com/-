@@ -418,16 +418,17 @@ export default function LongTermGoalsPage() {
           title="新建长期目标（强制命名）"
         >➕</button>
         <div className="h-px bg-slate-100 mx-1" />
-        {/* 样式切换 */}
+        {/* 样式切换：[修复] 图标 + 文字双重标识当前幕布样式，避免移动端误触不知道切到了什么 */}
         <button
           onClick={() => dispatch({
             type: 'UPDATE_SETTINGS',
             payload: { canvasStyle: canvasStyle === 'lined' ? 'plain' : 'lined' }
           })}
-          title="切换幕布样式"
-          className="w-9 h-9 rounded-lg hover:bg-indigo-50 text-slate-600 hover:text-indigo-600 flex items-center justify-center text-base touch-feedback"
+          title={canvasStyle === 'lined' ? '当前：横线幕布，点击切换纯白' : '当前：纯白幕布，点击切换横线'}
+          className="w-11 py-1.5 rounded-lg hover:bg-indigo-50 text-slate-600 hover:text-indigo-600 flex flex-col items-center justify-center gap-0.5 touch-feedback"
         >
-          {canvasStyle === 'lined' ? '⬜' : '📄'}
+          <span className="text-base leading-none">{canvasStyle === 'lined' ? '📄' : '⬜'}</span>
+          <span className="text-[10px] leading-none font-medium text-slate-500">{canvasStyle === 'lined' ? '横线' : '纯白'}</span>
         </button>
         <div className="h-px bg-slate-100 mx-1" />
         {/* 缩放：鼠标滚轮（以鼠标所在处为中心） */}

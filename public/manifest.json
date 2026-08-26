@@ -4,7 +4,7 @@
   "description": "七大系统 · 思维导图 · AI学习方法 · 计时打卡 · 数据复盘",
   "start_url": "/",
   "display": "standalone",
-  "orientation": "portrait",
+  "orientation": "any",
   "background_color": "#1e1b4b",
   "theme_color": "#6366f1",
   "lang": "zh-CN",

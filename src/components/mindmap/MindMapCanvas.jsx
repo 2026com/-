@@ -145,6 +145,8 @@ export default function MindMapCanvas({ zoom = 1, onCreateRootNode, timeFilter =
   const state = useAppState()
   const dispatch = useAppDispatch()
   const containerRef = useRef(null)
+  // [修复] 幕布样式（lined 横线网格 / plain 纯白）从全局设置读取，切幕布图标即时生效
+  const canvasStyle = state.settings?.canvasStyle || 'lined'
   const [windowStart, setWindowStartRaw] = useState(() => state.ui?.canvasViews?.[activeRootId]?.windowStart ?? 0)  // 视口左缘 dayIdx（0=今天，时间轴起点）
   const [offsetY, setOffsetY] = useState(() => state.ui?.canvasViews?.[activeRootId]?.offsetY ?? 20)            // 纵向平移（px）
   const [isPanning, setIsPanning] = useState(false)
@@ -216,8 +218,18 @@ export default function MindMapCanvas({ zoom = 1, onCreateRootNode, timeFilter =
       // 安全兜底：若 zoom 未变化导致 zoom effect 未消费该标记，稍后自动清掉，避免吞掉下一次正常缩放
       setTimeout(() => { suppressRecenterRef.current = false }, 0)
     } else if (pv.canvasId) {
-      // 新幕布（无历史视图）：保持当前视图不动，仅展开该幕布根节点
+      // 新幕布（无历史视图）：仅展开该幕布根节点
       setExpandedIds(prev => { const s = new Set(prev); s.add(pv.canvasId); return s })
+      // [修复] 移动端新节点不可见：把时间窗锚定到新根节点所在日期，
+      // 避免节点因截止日在未来（dayIdx 数十天后）而落在窄视口右侧视区之外。
+      const root = byId[pv.canvasId]
+      if (root) {
+        const dIdx = nodeDayIdx[pv.canvasId]
+        if (typeof dIdx === 'number' && Number.isFinite(dIdx)) {
+          setWindowStart(dIdx - 1)
+          setOffsetY(20)
+        }
+      }
     }
   }, [state.ui?.pendingCanvasView])
 
@@ -501,6 +513,21 @@ const { renderedNodes, visibleNodeIds, rootsById, stageNodesByRoot } = useMemo((
     setExpandedIds(prev => { const s = new Set(prev); s.add(rid); return s })
   }, [state.ui?.focusRootId])
 
+  // ====== [修复] 新创建节点后自动滚动到该节点（移动端窄视口只有约 2 天宽，新节点默认落在视区外不可见） ======
+  useEffect(() => {
+    const fid = state.ui?.focusNodeId
+    if (!fid) return
+    const n = byId[fid]
+    dispatch({ type: 'CLEAR_FOCUS_NODE' })  // 一次性消费，避免每次渲染都重滚
+    if (!n) return
+    const dIdx = nodeDayIdx[fid]
+    if (typeof dIdx !== 'number' || !Number.isFinite(dIdx)) return
+    // 已在视口中间 ±可见天数的 45% 范围内 → 无需滚动
+    if (dIdx >= windowStart + visibleDays * 0.1 && dIdx <= windowStart + visibleDays * 0.9) return
+    // 锚到新节点的前一天，让节点落在视口左 1/4（与新建幕布的定位行为一致，不跳动）
+    setWindowStart(Math.max(minWindowStartRef.current, dIdx - 1))
+  }, [state.ui?.focusNodeId])
+
   // P1X: 路线级装饰层（每条根节点若 hasRoute=true，绘制顶部大标题/副标题、阶段 phaseLabel、最后阶段下方的黑色圆角口诀横条）
   const routeDecorations = useMemo(() => {
     const out = []
@@ -746,7 +773,7 @@ const defaultCreateRoot = useCallback(() => {
   return (
     <div
       ref={containerRef}
-      className="w-full h-full relative select-none touch-manipulation overflow-hidden bg-white"
+      className={`w-full h-full relative select-none touch-manipulation overflow-hidden ${canvasStyle === 'lined' ? 'canvas-lined' : 'bg-white'}`}
       onMouseDown={onCanvasMouseDown}
       onMouseMove={onCanvasMouseMove}
       onMouseUp={onCanvasMouseUp}

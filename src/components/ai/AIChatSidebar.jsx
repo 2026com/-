@@ -71,6 +71,8 @@ export default function AIChatSidebar({ onOpenConfig, embedded = false }) {
     dragRef.current = {
       startY: e.clientY,
       startTop: currentTopPx,
+      startTime: Date.now(),
+      maxDy: 0,
       moved: false,
       dragging: true,
     }
@@ -82,23 +84,38 @@ export default function AIChatSidebar({ onOpenConfig, embedded = false }) {
   const onFabPointerMove = (e) => {
     if (!dragRef.current.dragging) return
     const dy = e.clientY - dragRef.current.startY
-    if (Math.abs(dy) > 4) dragRef.current.moved = true
+    const ady = Math.abs(dy)
+    // 累计最大偏移用于 tap 判定
+    if (ady > dragRef.current.maxDy) dragRef.current.maxDy = ady
+    // 拖拽阈值从 4px 提高到 12px（配合起始 120ms 防颤判断，避免手指轻抖被误判为拖动）
+    if (ady > 12 || dragRef.current.moved) dragRef.current.moved = true
     const next = clampFabTop(dragRef.current.startTop + dy)
     setFabTop(next)
     e.preventDefault()
     e.stopPropagation()
   }
 
+  // [修复] 统一 tap 判定：拖拽结束的位移/耗时记在 dragRef 中。
+  // 无论从 pointerup 还是 click（某些 WebView 会 suppress click 后的备选）触发，
+  // 都按「按得短 + 位移小」判定为点击 → 展开抽屉。
+  // 拖拽（长按拖动 > 350ms 或位移 > 12px）→ 不展开，仅保留位置调整。
+  const maybeOpenFab = () => {
+    const d = dragRef.current
+    if (!d || d.dragging) return
+    const duration = Date.now() - (d.startTime || Date.now())
+    const maxDy = d.maxDy || 0
+    const isTap = duration < 350 && maxDy <= 12
+    if (!isTap) return
+    if (fabTop != null) persistFab(fabTop)
+    setExpanded(true)
+  }
+
   const onFabPointerUp = (e) => {
     if (!dragRef.current.dragging) return
-    const moved = dragRef.current.moved
     dragRef.current.dragging = false
-    if (fabTop != null) persistFab(fabTop)
+    dragRef.current.moved = false      // [修复] 拖动结束后重置 moved，避免阻塞后续 click 事件
     try { e.currentTarget.releasePointerCapture?.(e.pointerId) } catch {}
-    // 无移动才算 click → 展开抽屉
-    if (!moved) {
-      setExpanded(true)
-    }
+    maybeOpenFab()
   }
 
   const onFabPointerCancel = (e) => {
@@ -250,6 +267,7 @@ export default function AIChatSidebar({ onOpenConfig, embedded = false }) {
           onPointerMove={onFabPointerMove}
           onPointerUp={onFabPointerUp}
           onPointerCancel={onFabPointerCancel}
+          onClick={maybeOpenFab}
           onContextMenu={(e) => e.preventDefault()}
           className="fixed right-0 z-40 bg-indigo-500 text-white hover:bg-indigo-600 shadow-2xl shadow-indigo-200 rounded-l-xl px-2.5 py-5 flex flex-col items-center gap-1.5 touch-feedback select-none cursor-grab active:cursor-grabbing"
           style={{

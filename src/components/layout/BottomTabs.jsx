@@ -5,8 +5,8 @@ import { MAIN_TABS } from '../../utils/constants.js'
 export default function BottomTabs() {
   return (
     <nav
-      className="w-full bg-white border-t border-slate-200 flex items-center justify-around z-30"
-      style={{ height: 64, paddingBottom: 'var(--safe-bottom)' }}
+      className="w-full bg-white border-t border-slate-200 flex items-center justify-around z-30 bottombar-safe"
+      style={{ minHeight: 'var(--bottombar-total, 64px)', paddingBottom: 'var(--safe-bottom, 0px)' }}
     >
       {MAIN_TABS.map(tab => (
         <NavLink key={tab.id} to={tab.path} end>

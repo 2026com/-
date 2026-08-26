@@ -22,8 +22,14 @@ const initialState = () => {
       storage.set(STORAGE_KEYS.DATA_VERSION, DATA_VERSION)
     }
   }
+  // [修复] 幕布样式归一化：历史版本 localStorage 可能缺 canvasStyle 或存了非法值，
+  // 导致画布显示成纯白。启动时统一兜底为 'lined'（横线草稿格），并回写保证后续启动一致。
+  const savedSettings = storage.get(STORAGE_KEYS.SETTINGS, DEFAULT_SETTINGS) || {}
+  const bootSettings = { ...DEFAULT_SETTINGS, ...savedSettings }
+  if (bootSettings.canvasStyle !== 'plain') bootSettings.canvasStyle = 'lined'
+  storage.set(STORAGE_KEYS.SETTINGS, bootSettings)
   return {
-    settings: storage.get(STORAGE_KEYS.SETTINGS, DEFAULT_SETTINGS),
+    settings: bootSettings,
     nodes: storage.get(STORAGE_KEYS.NODES, []),
     habits: storage.get(STORAGE_KEYS.HABITS, []),
     tempTasks: storage.get(STORAGE_KEYS.TEMP_TASKS, []),
@@ -57,6 +63,8 @@ const initialState = () => {
       pendingCanvasView: null,
       // 新建幕布后要聚焦的根节点 id（切换视图到新幕布）
       focusRootId: null,
+      // [修复] 新创建节点后要滚动定位的节点 id（移动端窄视口下新节点默认落在视区外）
+      focusNodeId: null,
       // 当前激活的幕布（根节点 id）：切换后只显示该幕布的节点；null=全部
       activeCanvasId: null,
     }
@@ -106,7 +114,20 @@ function reducer(state, action) {
         recalcParentProgress(nodes, action.payload.parentId, state.settings.progressMode)
       }
       storage.set(STORAGE_KEYS.NODES, nodes)
+      // [修复] 新节点创建成功后：标记待滚动定位（MindMapCanvas 消费后清除）。
+      // 除非调用方显式 focusScroll:false（例如 AI 批量生成，视图交给 AUTO_EXPAND/focusPlan 接管）。
+      if (action.payload.focusScroll !== false) {
+        return { ...state, nodes, ui: { ...state.ui, focusNodeId: newNode.id } }
+      }
       return { ...state, nodes }
+    }
+    // [修复] 外部手动设置待聚焦节点（例如创建后需要定位）
+    case 'SET_FOCUS_NODE': {
+      return { ...state, ui: { ...state.ui, focusNodeId: action.payload || null } }
+    }
+    case 'CLEAR_FOCUS_NODE': {
+      if (!state.ui.focusNodeId) return state
+      return { ...state, ui: { ...state.ui, focusNodeId: null } }
     }
     case 'UPDATE_NODE': {
       const nodes = state.nodes.map(n => n.id === action.id ? { ...n, ...action.payload } : n)
@@ -589,6 +610,12 @@ function reducer(state, action) {
     // UI控制
     case 'TOGGLE_CALENDAR':
       return { ...state, ui: { ...state.ui, calendarOpen: !state.ui.calendarOpen } }
+    case 'OPEN_CALENDAR':
+      if (state.ui.calendarOpen) return state
+      return { ...state, ui: { ...state.ui, calendarOpen: true } }
+    case 'CLOSE_CALENDAR':
+      if (!state.ui.calendarOpen) return state
+      return { ...state, ui: { ...state.ui, calendarOpen: false } }
     case 'TOGGLE_DASHBOARD':
       return { ...state, ui: { ...state.ui, dashboardOpen: !state.ui.dashboardOpen } }
     case 'PUSH_MODAL':
@@ -661,6 +688,7 @@ export function AppProvider({ children }) {
   const stateRef = useRef(state)
   stateRef.current = state
   const pollTimerRef = useRef(null)
+  const nextTimeoutRef = useRef(null)
   useEffect(() => {
     // 首次用户交互时申请系统通知权限（浏览器要求尽量在手势里请求）
     const requestPerm = () => ensureNotifyPermission()
@@ -806,11 +834,21 @@ export function AppProvider({ children }) {
       // 原生壳（APK）：把未来提醒同步注册到 Android 系统时钟（锁屏/杀进程可靠触发）
       syncNativeReminders()
     }
-    // 启动：立即执行一次（避免进入页面刚好错过 15s 窗口），然后每 15 秒扫描
+    // [修复] 启动：立即执行一次，然后使用精确 setTimeout 调度
+    // 代替 setInterval（浏览器在后台 tab 会大幅节流 setInterval 至 1 次/分钟）
+    const scheduleNext = () => {
+      const now = Date.now()
+      const msUntilNext = 15000 - (now % 15000) + 100
+      if (nextTimeoutRef.current) clearTimeout(nextTimeoutRef.current)
+      nextTimeoutRef.current = setTimeout(() => {
+        checkDue()
+        scheduleNext()
+      }, Math.max(1000, msUntilNext))
+    }
     checkDue()
-    pollTimerRef.current = setInterval(checkDue, 15 * 1000)
+    scheduleNext()
     return () => {
-      if (pollTimerRef.current) clearInterval(pollTimerRef.current)
+      if (nextTimeoutRef.current) clearTimeout(nextTimeoutRef.current)
       window.removeEventListener('pointerdown', requestPerm)
       window.removeEventListener('keydown', requestPerm)
     }

@@ -1,18 +1,62 @@
-import React from 'react'
+import React, { useEffect, useState } from 'react'
 import { useAppState, useAppDispatch } from '../../context/AppContext.jsx'
 import { useMemo } from 'react'
 import { dateUtil } from '../../utils/storage.js'
 
 /**
+ * 顶部状态栏 V2（手机端适配）
+ * - CSS env(safe-area-inset-top) 优先；Android Chrome 等返回 0 时用 JS 检测兜底
+ * - 兜底策略：移动 UA → 至少 24px 顶部补偿，防止与系统时间/电池图标重叠
+ * - 横屏时自动压缩为紧凑高度
+ */
+function detectSafeTop() {
+  if (typeof window === 'undefined') return 0
+  // 1) 先测 CSS env() 实际值
+  try {
+    const probe = document.createElement('div')
+    probe.style.position = 'fixed'
+    probe.style.visibility = 'hidden'
+    probe.style.paddingTop = 'env(safe-area-inset-top, 0px)'
+    document.body.appendChild(probe)
+    const cssVal = parseInt(window.getComputedStyle(probe).paddingTop, 10) || 0
+    document.body.removeChild(probe)
+    if (cssVal > 0) return cssVal
+  } catch { /* 忽略 */ }
+  // 2) env() 无效时的 UA 兜底：仅移动端需要补偿系统状态栏
+  const ua = navigator.userAgent || ''
+  const isMobileUA = /Android|iPhone|iPad|iPod|Mobile/i.test(ua)
+  const isStandalone = window.matchMedia?.('(display-mode: standalone)')?.matches || window.navigator.standalone === true
+  const isLandscape = window.innerWidth >= window.innerHeight
+  if ((isMobileUA || isStandalone) && !isLandscape) return 28 // 移动竖屏兜底：28px
+  if ((isMobileUA || isStandalone) && isLandscape) return 8   // 移动横屏兜底：8px
+  return 0 // 桌面浏览器无需补偿
+}
+
+/**
  * 顶部状态栏
  * - 历史复盘视图时展示：年度完成率、有效工作时间
  * - 右侧常驻：打卡日历开关、配色/模式
- * 阶段1 修复：统计从硬编码改为真实数据计算
  */
 export default function TopStatusBar() {
   const state = useAppState()
   const dispatch = useAppDispatch()
   const { activeTab } = state.ui
+
+  // ===== V2：安全区顶部补偿（CSS env 失效时 JS 兜底）=====
+  const [safeTop, setSafeTop] = useState(() => detectSafeTop())
+  useEffect(() => {
+    const recompute = () => setSafeTop(detectSafeTop())
+    window.addEventListener('resize', recompute)
+    window.addEventListener('orientationchange', recompute)
+    return () => {
+      window.removeEventListener('resize', recompute)
+      window.removeEventListener('orientationchange', recompute)
+    }
+  }, [])
+  // 把 JS 检测结果写入全局变量，供 responsive.css 的 topbar-safe/bottombar-safe 使用
+  useEffect(() => {
+    document.documentElement.style.setProperty('--safe-top-js', `${safeTop}px`)
+  }, [safeTop])
 
   const stats = useMemo(() => {
     // ===== 有效工作时间：真实计时记录汇总（分钟 → 小时） =====
@@ -45,8 +89,8 @@ export default function TopStatusBar() {
 
   return (
     <header
-      className="w-full bg-gradient-to-r from-slate-800 to-slate-700 text-white flex items-center justify-between px-4 z-30 shrink-0"
-      style={{ height: 52, paddingTop: 'var(--safe-top)' }}
+      className="w-full bg-gradient-to-r from-slate-800 to-slate-700 text-white flex items-center justify-between px-4 z-30 shrink-0 topbar-safe"
+      style={{ paddingTop: 'var(--safe-top-js, var(--safe-top, 0px))' }}
     >
       {/* 左侧：页签标题 */}
       <div className="flex items-center gap-3">

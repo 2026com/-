@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react'
+import React, { useEffect, useRef, useState, useMemo } from 'react'
 import { useAppState, useAppDispatch } from '../../context/AppContext.jsx'
 import { uid } from '../../utils/storage.js'
 
@@ -15,6 +15,12 @@ export default function ModalRoot() {
 
   const top = stack[stack.length - 1]
   const close = () => dispatch({ type: 'POP_MODAL' })
+
+  // Toast 单独渲染：无暗色遮罩、轻量居上、点击即关闭
+  // V2 缩短默认持续时间为 800ms（原 1200ms），可通过顶层 cfg.duration 覆盖
+  if (top.type === 'toast') {
+    return <ToastOverlay message={top.message} duration={top.duration || 800} onClose={close} />
+  }
 
   return (
     <div
@@ -43,13 +49,6 @@ function renderModal(cfg, close, dispatch, state) {
       {actions && <div className="px-5 pb-5 flex gap-2 justify-end">{actions}</div>}
     </>
   )
-
-  if (cfg.type === 'toast') {
-    setTimeout(close, 2000)
-    return wrap(null, (
-      <div className="text-center py-3 text-sm text-slate-700">{cfg.message}</div>
-    ))
-  }
 
   if (cfg.type === 'alert') {
     return wrap(
@@ -123,6 +122,53 @@ function renderModal(cfg, close, dispatch, state) {
   }
 
   return wrap(null, <div>未知弹窗类型</div>, <button onClick={close} className="px-4 py-2 bg-slate-100 rounded">关闭</button>)
+}
+
+/**
+ * Toast 轻量提示组件 V2
+ * - 无暗色遮罩，只显示顶部小卡片
+ * - 点击/触摸任意区域立即关闭
+ * - 默认 800ms 自动关闭（可通过 cfg.duration 自定义，最低 500ms）
+ * - 入场动画 150ms，退出带滑出动画
+ */
+function ToastOverlay({ message, duration, onClose }) {
+  const timerRef = useRef(null)
+  const [leaving, setLeaving] = useState(false)
+
+  useEffect(() => {
+    const ms = Math.max(500, duration || 800)
+    timerRef.current = setTimeout(() => setLeaving(true), ms - 120)
+    return () => { if (timerRef.current) clearTimeout(timerRef.current) }
+  }, [duration])
+
+  // leaving 状态触发 120ms 后真正关闭（给滑出动画留时间）
+  useEffect(() => {
+    if (!leaving) return
+    const t = setTimeout(onClose, 120)
+    return () => clearTimeout(t)
+  }, [leaving, onClose])
+
+  const dismiss = () => {
+    if (timerRef.current) clearTimeout(timerRef.current)
+    setLeaving(true)
+  }
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-start justify-center pt-16 px-6"
+      onClick={dismiss}
+      onTouchStart={dismiss}
+    >
+      <div
+        className={`bg-slate-800/90 text-white text-sm px-5 py-3 rounded-xl shadow-2xl max-w-xs text-center select-none ${leaving ? 'animate-out fade-out slide-out-to-top-2 duration-150' : 'animate-in fade-in zoom-in-95 duration-150'}`}
+        onMouseDown={(e) => e.stopPropagation()}
+        onMouseUp={(e) => e.stopPropagation()}
+        onTouchStart={(e) => e.stopPropagation()}
+      >
+        {message}
+      </div>
+    </div>
+  )
 }
 
 function PromptModal({ cfg, close, dispatch, wrap }) {

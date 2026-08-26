@@ -348,7 +348,7 @@ export default function DailyHabitsPage() {
                   toast(`日常习惯最多 ${GRID_SIZE_DAILY} 个，请先删除一个再新增`); return
                 }
                 dispatch({ type: 'ADD_HABIT', payload: data })
-                toast(`✅ 已新增：${data.title}`)
+                // V2: 移除创建成功 toast，弹窗关闭即确认
                 setAddHabitOpen(false)
               }}
             />
@@ -367,7 +367,7 @@ export default function DailyHabitsPage() {
               onClose={() => setEditHabitId(null)}
               onSubmit={(data) => {
                 dispatch({ type: 'UPDATE_HABIT', id: editHabitId, payload: data })
-                toast('✅ 已保存修改')
+                // V2: 移除编辑成功 toast，弹窗关闭即确认
                 setEditHabitId(null)
               }}
             />
@@ -389,7 +389,7 @@ export default function DailyHabitsPage() {
                   toast(`临时任务最多 ${GRID_SIZE_TEMP} 条，请先删除一条再新增`); return
                 }
                 dispatch({ type: 'ADD_TEMP_TASK', payload: data })
-                toast(`✅ 已新增临时任务：${data.title}`)
+                // V2: 移除创建成功 toast，弹窗关闭即确认
                 setAddTempOpen(false)
               }}
             />
@@ -408,7 +408,7 @@ export default function DailyHabitsPage() {
               onClose={() => setEditTempId(null)}
               onSubmit={(data) => {
                 dispatch({ type: 'UPDATE_TEMP_TASK', id: editTempId, payload: data })
-                toast('✅ 已保存修改')
+                // V2: 移除编辑成功 toast，弹窗关闭即确认
                 setEditTempId(null)
               }}
             />

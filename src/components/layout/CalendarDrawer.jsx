@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react'
+import React, { useEffect, useRef, useState, useMemo } from 'react'
 import { useAppState, useAppDispatch } from '../../context/AppContext.jsx'
 import { dateUtil } from '../../utils/storage.js'
 
@@ -14,6 +14,67 @@ export default function CalendarDrawer() {
     const d = new Date()
     return { year: d.getFullYear(), month: d.getMonth() + 1 }
   })
+  const closeCalendar = () => dispatch({ type: 'CLOSE_CALENDAR' })
+  // 滑动手势识别（V2：支持跟手拖动）
+  const swipeRef = useRef({ x: 0, y: 0, active: false })
+  const drawerRef = useRef(null)
+
+  // ESC 键关闭
+  useEffect(() => {
+    if (!calendarOpen) return
+    const onKey = (e) => { if (e.key === 'Escape') closeCalendar() }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [calendarOpen])
+
+  const onTouchStart = (e) => {
+    const t = e.touches[0]
+    swipeRef.current = { x: t.clientX, y: t.clientY, time: Date.now(), active: true }
+  }
+  // V2 跟手拖动：仅横向右拖跟手（不影响日历格纵向滚动）
+  const onTouchMove = (e) => {
+    if (!swipeRef.current.active || !drawerRef.current) return
+    const t = e.touches[0]
+    const dx = t.clientX - swipeRef.current.x
+    if (dx > 0) {
+      drawerRef.current.style.transition = 'none'
+      drawerRef.current.style.transform = `translateX(${dx * 0.9}px)` // 橡皮筋阻尼
+    } else {
+      drawerRef.current.style.transform = ''
+    }
+  }
+  const onTouchEnd = (e) => {
+    if (!swipeRef.current.active) return
+    swipeRef.current.active = false
+    const t = e.changedTouches[0]
+    const dx = t.clientX - swipeRef.current.x
+    const dy = t.clientY - swipeRef.current.y
+    const dt = Date.now() - (swipeRef.current.time || 0)
+    const el = drawerRef.current
+    // 灵敏度调优：位移阈值 60/70px，或快速轻扫（>0.35px/ms 且方向明确）
+    const rightSwipe = dx > 60 && Math.abs(dx) > Math.abs(dy)
+    const downSwipe = dy > 70 && Math.abs(dy) > Math.abs(dx)
+    const flickRight = dx > 30 && dt < 250 && Math.abs(dx) > Math.abs(dy)
+    if (rightSwipe || downSwipe || flickRight) {
+      // 滑出动画后关闭（横滑→右侧滑出；下滑→底部滑出）
+      if (el) {
+        const horiz = Math.abs(dx) >= Math.abs(dy)
+        el.style.transition = 'transform 0.18s ease-in'
+        el.style.transform = horiz ? 'translateX(105%)' : 'translateY(105%)'
+        setTimeout(() => {
+          closeCalendar()
+        }, 170)
+      } else {
+        closeCalendar()
+      }
+    } else {
+      // 未达阈值 → 弹性回弹
+      if (el) {
+        el.style.transition = 'transform 0.28s cubic-bezier(0.16, 1, 0.3, 1)'
+        el.style.transform = ''
+      }
+    }
+  }
 
   const stats = useMemo(() => {
     const days = dateUtil.getMonthDays(current.year, current.month)
@@ -66,13 +127,41 @@ export default function CalendarDrawer() {
   }
 
   return (
-    <div className="absolute top-0 right-0 h-full w-[300px] bg-white border-l border-slate-200 shadow-xl z-25 flex flex-col animate-in fade-in slide-in-from-right-4 duration-300">
-      {/* 头部 */}
-      <div className="h-11 border-b border-slate-200 flex items-center justify-between px-3 shrink-0">
-        <button onClick={() => goMonth(-1)} className="text-slate-500 hover:text-slate-700 w-7 h-7 rounded hover:bg-slate-100 touch-feedback">‹</button>
-        <div className="text-sm font-semibold text-slate-800">{current.year}年{current.month}月</div>
-        <button onClick={() => goMonth(1)} className="text-slate-500 hover:text-slate-700 w-7 h-7 rounded hover:bg-slate-100 touch-feedback">›</button>
-      </div>
+    <>
+      {/* [增强] 半透明遮罩 + 点击空白处关闭日历 + 右滑/下滑关闭 */}
+      <div
+        className="fixed inset-0 z-20 bg-black/15 backdrop-blur-[1px] calendar-backdrop"
+        onClick={closeCalendar}
+        onTouchEnd={(e) => {
+          // 遮罩层上也支持滑动关闭（下滑关闭）
+          const t = e.changedTouches[0]
+          if (t && swipeRef.current.active) {
+            const dy = t.clientY - swipeRef.current.y
+            const dx = t.clientX - swipeRef.current.x
+            if (dy > 60 || dx > 60) closeCalendar()
+          }
+        }}
+        aria-hidden
+      />
+      <div
+        ref={drawerRef}
+        className="absolute top-0 right-0 h-full bg-white border-l border-slate-200 shadow-2xl z-25 flex flex-col animate-in fade-in slide-in-from-right-4 duration-300 calendar-drawer-mobile"
+        style={{ width: 'min(300px, 82vw)' }}
+        onTouchStart={onTouchStart}
+        onTouchMove={onTouchMove}
+        onTouchEnd={onTouchEnd}
+      >
+        {/* 滑动关闭指示条（提示可下滑/右滑关闭） */}
+        <div className="calendar-drawer-handle shrink-0 cursor-grab" aria-hidden />
+        {/* 头部 */}
+        <div className="h-11 border-b border-slate-200 flex items-center justify-between px-3 shrink-0">
+          <button onClick={() => goMonth(-1)} className="text-slate-500 hover:text-slate-700 w-7 h-7 rounded hover:bg-slate-100 touch-feedback">‹</button>
+          <div className="text-sm font-semibold text-slate-800">{current.year}年{current.month}月</div>
+          <div className="flex items-center gap-1">
+            <button onClick={() => goMonth(1)} className="text-slate-500 hover:text-slate-700 w-7 h-7 rounded hover:bg-slate-100 touch-feedback">›</button>
+            <button onClick={closeCalendar} className="text-slate-400 hover:text-slate-700 w-7 h-7 rounded hover:bg-slate-100 touch-feedback ml-1" title="关闭日历">✕</button>
+          </div>
+        </div>
 
       {/* 统计卡 */}
       <div className="p-3 border-b border-slate-100 grid grid-cols-2 gap-2 text-xs shrink-0">
@@ -114,5 +203,6 @@ export default function CalendarDrawer() {
         <span className="flex items-center gap-1"><i className="w-3 h-3 rounded cal-none inline-block" />未执行</span>
       </div>
     </div>
+    </>
   )
 }

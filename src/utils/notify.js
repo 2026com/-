@@ -23,8 +23,14 @@ function isCapacitor() {
 
 /** 动态加载本地通知插件（web 环境不加载，避免破坏 PWA 构建） */
 async function loadLocalNotifications() {
-  const mod = await import('@capacitor/local-notifications')
-  return mod.LocalNotifications
+  try {
+    const mod = await import('@capacitor/local-notifications')
+    return mod.LocalNotifications || null
+  } catch (e) {
+    // @capacitor/local-notifications 未安装或构建未包含
+    console.warn('[notify] @capacitor/local-notifications 加载失败 — 原生通道不可用:', e?.message)
+    return null
+  }
 }
 
 /** 把任意字符串 id 稳定映射为 Android 正整数通知 id（1 ~ 2147483646） */
@@ -41,6 +47,10 @@ export async function initNativeNotifications() {
   if (!isCapacitor()) return false
   try {
     const LocalNotifications = await loadLocalNotifications()
+    if (!LocalNotifications) {
+      console.warn('[notify] 无法加载 LocalNotifications 模块 — capacitor.plugins.json 可能缺失，请执行 npx cap sync android')
+      return false
+    }
     await LocalNotifications.createChannel({
       id: 'growth',
       name: '成长提醒',
@@ -53,6 +63,7 @@ export async function initNativeNotifications() {
     _channelReady = true
     return true
   } catch (e) {
+    console.warn('[notify] initNativeNotifications 失败:', e?.message)
     return false
   }
 }
@@ -62,6 +73,7 @@ export async function ensureNotifyPermission() {
   if (isCapacitor()) {
     try {
       const LocalNotifications = await loadLocalNotifications()
+      if (!LocalNotifications) return false
       const perm = await LocalNotifications.checkPermissions()
       if (perm.display === 'granted') return true
       if (perm.display === 'denied') return false
@@ -93,6 +105,7 @@ export async function scheduleNativeNotification(opts) {
   if (!isCapacitor()) return false
   try {
     const LocalNotifications = await loadLocalNotifications()
+    if (!LocalNotifications) return false
     const perm = await LocalNotifications.checkPermissions()
     if (perm.display !== 'granted') {
       const res = await LocalNotifications.requestPermissions()
@@ -113,6 +126,7 @@ export async function scheduleNativeNotification(opts) {
     })
     return true
   } catch (e) {
+    console.warn('[notify] scheduleNativeNotification 失败:', e?.message)
     return false
   }
 }
@@ -122,6 +136,7 @@ export async function cancelNativeNotification(id) {
   if (!isCapacitor()) return
   try {
     const LocalNotifications = await loadLocalNotifications()
+    if (!LocalNotifications) return
     await LocalNotifications.cancel({ notifications: [{ id: numId(id) }] })
   } catch (e) { /* ignore */ }
 }
@@ -130,7 +145,11 @@ let _counter = 0
 /**
  * 发送系统通知。
  * - 原生：调度 1 秒后的系统通知（锁屏/后台/被杀后已调度的也能弹）。
- * - PWA：页面可见且有焦点时跳过（页面内弹窗足够）；后台/未聚焦才真正弹出。
+ * - PWA：页面不可见或未聚焦时弹出系统通知；
+ *        可见且有焦点时跳过（页面内弹窗足够）。
+ * [修复] 移除 visible+focused 双条件限制 → 改为「只要页面不可见或未聚焦」就弹，
+ *        确保切到后台/锁屏时系统通知必达。
+ * [修复] 尝试通过 ServiceWorker 注册展示通知（PWA 增强后台可达性）。
  */
 export async function notifyNow(title, body) {
   if (isCapacitor()) {
@@ -140,22 +159,43 @@ export async function notifyNow(title, body) {
   try {
     if (typeof window === 'undefined' || !('Notification' in window)) return
     if (Notification.permission !== 'granted') return
-    // 页面正被用户看着 → 不弹系统通知，交给页面内提示
+    // [修复] 页面可见且有焦点 → 不弹系统通知（交给页面内弹窗）
+    // 页面不可见（后台/锁屏）或无焦点 → 必弹系统通知
     const visible = typeof document !== 'undefined' && document.visibilityState === 'visible'
     const focused = typeof document !== 'undefined' && document.hasFocus ? document.hasFocus() : true
     if (visible && focused) return
+
+    // 优先尝试通过 ServiceWorker 展示通知（后台 tab 更可靠）
+    if (navigator.serviceWorker?.ready) {
+      try {
+        const reg = await navigator.serviceWorker.ready
+        if (reg?.showNotification) {
+          await reg.showNotification(title || '成长提醒', {
+            body: body || '',
+            icon: ICON,
+            badge: ICON,
+            tag: 'growth-alarm-' + Date.now(),
+            requireInteraction: true,
+            vibrate: [200, 100, 200],
+          })
+          return
+        }
+      } catch (_) { /* 降级到 new Notification */ }
+    }
+
     const n = new Notification(title || '成长提醒', {
       body: body || '',
       icon: ICON,
       badge: ICON,
       tag: 'growth-alarm-' + Date.now(),
+      requireInteraction: true,
+      vibrate: [200, 100, 200],
     })
     n.onclick = () => {
       try { window.focus(); n.close() } catch (e) { /* ignore */ }
     }
-    if (typeof n.onshow === 'function') {
-      n.onshow = () => { try { setTimeout(() => n.close(), 15000) } catch (e) {} }
-    }
+    // 10 秒后自动关闭（防止通知堆积）
+    setTimeout(() => { try { n.close() } catch (_) {} }, 10000)
   } catch (e) {
     // 某些桌面浏览器/系统禁用通知时静默
   }

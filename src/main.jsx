@@ -6,6 +6,7 @@ import { AppProvider } from './context/AppContext.jsx'
 import ErrorBoundary from './components/common/ErrorBoundary.jsx'
 import { registerSW } from 'virtual:pwa-register'
 import './index.css'
+import './responsive.css'
 
 // 阶段1：PWA Service Worker 注册（autoUpdate：后台自动更新，下次打开生效）
 registerSW({ immediate: true })
