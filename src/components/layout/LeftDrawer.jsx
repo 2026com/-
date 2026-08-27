@@ -24,6 +24,18 @@ const NAV_GROUPS = [
   }
 ]
 
+// 七大系统 → 路由映射（点击系统菜单行跳转到右侧对应页面）
+// 注意：richeng（任务日程）为父菜单，点击只展开/折叠子菜单，不直接跳转
+const SYSTEM_ROUTES = {
+  nengli:  { path: '/skill-tree',     tab: 'skill-tree' },
+  renji:   { path: '/social-graph',   tab: 'social-graph' },
+  caiwu:   { path: '/finance',        tab: 'finance' },
+  richeng: { path: '',                tab: '',          submenu: true },
+  zhishi:  { path: '/knowledge-base', tab: 'knowledge-base' },
+  shenti:  { path: '/health',         tab: 'health' },
+  qingxu:  { path: '/mind-community', tab: 'mind-community' },
+}
+
 // 三大任务路由（收纳到「任务日程」子菜单）
 const RICHENG_SUB_ROUTES = [
   { id: 'daily',  name: '日常打卡',   icon: '📅', path: '/daily',  tab: 'daily'  },
@@ -160,17 +172,24 @@ function NavContent({ collapsed }) {
               if (!sys) return null
               const isRicheng = id === 'richeng'
               const isEditing = editingId === id
+              // 系统路由：点击系统行跳转到右侧对应页面（任务日程为父菜单，仅展开子菜单）
+              const route = SYSTEM_ROUTES[id]
+              const isRouteActive = !!route && !!route.tab && ui.activeTab === route.tab
+              const isActive = (isRicheng && richengOpen) || isRouteActive
 
               return (
                 <div key={id}>
                   {/* 7 系统菜单行 */}
                   <div
-                    className={`group relative flex items-center gap-2 px-2.5 py-2 rounded-xl touch-feedback transition-colors cursor-default ${
-                      isRicheng && richengOpen
+                    className={`group relative flex items-center gap-2 px-2.5 py-2 rounded-xl touch-feedback transition-colors cursor-pointer ${
+                      isActive
                         ? 'bg-indigo-50/60 text-indigo-700'
                         : 'text-slate-700 hover:bg-slate-50'
                     }`}
-                    onClick={() => { if (isRicheng) setRichengOpen(o => !o) }}
+                    onClick={() => {
+                      if (isRicheng) { setRichengOpen(o => !o); return }
+                      if (route) go(route.path, route.tab)
+                    }}
                   >
                     {/* 图标 */}
                     <span className="w-6 h-6 shrink-0 rounded-lg bg-slate-50 group-hover:bg-white border border-slate-100 flex items-center justify-center text-base">

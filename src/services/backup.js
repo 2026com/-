@@ -15,7 +15,7 @@ export function createLocalBackup() {
   const blob = new Blob([JSON.stringify(snapshot, null, 2)], { type: 'application/json' })
   const url = URL.createObjectURL(blob)
   const a = document.createElement('a')
-  const ts = new Date().toISOString().slice(0, 16).replace(/[-:T]/g, '')
+  const ts = new Date().toISOString().slice(0, 16).replace(/\D/g, '')
   a.href = url
   a.download = `成长APP备份_${ts}.json`
   a.click()

@@ -31,6 +31,12 @@ export default function App() {
     if (path.includes('daily')) dispatch({ type: 'SET_ACTIVE_TAB', payload: 'daily' })
     else if (path.includes('goals')) dispatch({ type: 'SET_ACTIVE_TAB', payload: 'goals' })
     else if (path.includes('review')) dispatch({ type: 'SET_ACTIVE_TAB', payload: 'review' })
+    else if (path.includes('skill-tree')) dispatch({ type: 'SET_ACTIVE_TAB', payload: 'skill-tree' })
+    else if (path.includes('social-graph')) dispatch({ type: 'SET_ACTIVE_TAB', payload: 'social-graph' })
+    else if (path.includes('finance')) dispatch({ type: 'SET_ACTIVE_TAB', payload: 'finance' })
+    else if (path.includes('knowledge-base')) dispatch({ type: 'SET_ACTIVE_TAB', payload: 'knowledge-base' })
+    else if (path.includes('health')) dispatch({ type: 'SET_ACTIVE_TAB', payload: 'health' })
+    else if (path.includes('mind-community')) dispatch({ type: 'SET_ACTIVE_TAB', payload: 'mind-community' })
   }, [location.pathname])
 
   return (

@@ -104,6 +104,12 @@ export default function TopStatusBar() {
               <span className="text-xs bg-white/10 px-2 py-0.5 rounded">有效工作时间 {stats.totalHours}小时</span>
             </span>
           )}
+          {activeTab === 'skill-tree' && '能力成长 · 技能树'}
+          {activeTab === 'social-graph' && '人际网络'}
+          {activeTab === 'finance' && '财务记账'}
+          {activeTab === 'knowledge-base' && '知识思考库 · 3D知识库'}
+          {activeTab === 'health' && '身体状态'}
+          {activeTab === 'mind-community' && '情绪与心理'}
         </span>
       </div>
 
