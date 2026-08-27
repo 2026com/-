@@ -4,8 +4,8 @@ import { Billboard, OrbitControls } from '@react-three/drei'
 import { EffectComposer, Bloom } from '@react-three/postprocessing'
 import { useSkyParallax } from '../hooks/useSkyParallax.js'
 import * as THREE from 'three'
-import { buildMockGraph, GRAPH_CATEGORIES, CATEGORY_MAP } from '../services/mockKnowledgeGraph.js'
-import { growKnowledgeGraph, loadSavedGrowth, saveGrowth } from '../services/graphGrowth.js'
+import { GRAPH_CATEGORIES, CATEGORY_MAP } from '../services/mockKnowledgeGraph.js'
+import { buildDemoGraph, buildUserGraph, loadUserNodes, saveUserNodes, makeKnowledgeId } from '../services/userKnowledge.js'
 import { makeLabelTexture, getGlowTexture, makeDotTexture } from '../services/graphTextures.js'
 
 /**
@@ -39,11 +39,14 @@ import { makeLabelTexture, getGlowTexture, makeDotTexture } from '../services/gr
  *  - PerfGuard 运行时监测帧率：连续两秒 <26fps 自动切入流畅模式（终态，
  *    不改动用户偏好存储）
  *
- * 数据接入：props.data 传入同构 { nodes, links } 即可替换模拟数据，
- * links 可选 value 字段（0~1 关联强度）控制连线粗细与亮度。
- * 内置 mock 数据走「冷启动 + 渐进式生长」服务(graphGrowth.js)：
- * 首个知识点置于原点，后续按 AI 关系判定（因果/衍生/对比/延伸/无关 + 置信度）
- * 衍生式落位生长，决策结果持久化 localStorage，可无限延伸。
+ * 数据接入（双轨数据源）：
+ *  - 用户模式（默认，成品形态）：知识点存 localStorage（STORAGE_KEYS.KNOWLEDGE_BASE，
+ *    自动纳入全局备份/恢复）。安装后首次进入为「零渲染空状态」——没有任何知识点；
+ *    每个新知识点经 graphGrowth 服务判定落位（首个置于宇宙原点，后续按
+ *    因果/衍生/对比/延伸/无关 + 置信度围绕相关知识点生长），逐渐织成用户自己的星云
+ *  - 演示模式（?view=demo 或空状态页入口）：600 点 mock 团簇星云，只读展示
+ *    成品形态（示范用），生长缓存写独立键，与用户数据完全隔离互不污染
+ *  - props.data 传入同构 { nodes, links } 时优先于本地用户数据（未来 reducer 接入口）
  */
 
 // ============ 「星团星云」布局预计算(v3:分团 + 错乱 + 孤立星点) ============
@@ -1021,12 +1024,89 @@ function GraphScene({ graph, layout, layoutMap, nodesById, adjacency, maxDegree,
   )
 }
 
+// ============ 空状态页与添加弹窗（用户模式的零起点引导） ============
+
+/** 空状态页的 CSS 星空装饰（零 WebGL、零 GPU 负担：几十个微光点 + 呼吸闪烁） */
+function EmptySky() {
+  const stars = useMemo(() => Array.from({ length: 56 }, (_, i) => ({
+    id: i,
+    left: Math.random() * 100,
+    top: Math.random() * 100,
+    size: Math.random() < 0.15 ? 3 : 1.5,
+    opacity: 0.22 + Math.random() * 0.55,
+    delay: Math.random() * 4,
+  })), [])
+  return (
+    <div className="absolute inset-0 pointer-events-none">
+      {stars.map((s) => (
+        <span key={s.id} className="absolute rounded-full bg-white animate-pulse"
+          style={{ left: `${s.left}%`, top: `${s.top}%`, width: s.size, height: s.size, opacity: s.opacity, animationDelay: `${s.delay}s` }} />
+      ))}
+    </div>
+  )
+}
+
+/**
+ * 添加知识点弹窗：名称 + 类别（六选一）→ 生长服务判定落位。
+ * 关系判定当前用内置确定性判定器（judgeRelationMock），接入真实 AI 后
+ * 只替换判定器，本弹窗与数据流无需改动。
+ */
+function AddKnowledgeModal({ onSave, onClose }) {
+  const [name, setName] = useState('')
+  const [category, setCategory] = useState(GRAPH_CATEGORIES[0].id)
+  const inputRef = useRef(null)
+  useEffect(() => { inputRef.current?.focus() }, [])
+  const submit = () => {
+    const trimmed = name.trim()
+    if (!trimmed) return
+    onSave({ name: trimmed, category })
+  }
+  return (
+    <div className="absolute inset-0 z-20 flex items-center justify-center bg-slate-950/60 backdrop-blur-sm p-6" onClick={onClose}>
+      <div className="w-full max-w-sm bg-slate-900/95 border border-indigo-500/25 rounded-2xl p-5 shadow-2xl" onClick={(e) => e.stopPropagation()}>
+        <div className="text-sm font-bold text-indigo-100 mb-1">✨ 新的知识点</div>
+        <p className="text-[11px] text-slate-400 mb-4">它会根据内容与已有知识的关系，自动生长在合适的位置</p>
+        <input
+          ref={inputRef}
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          onKeyDown={(e) => { if (e.key === 'Enter') submit(); if (e.key === 'Escape') onClose() }}
+          placeholder="例如：间隔重复记忆法"
+          className="w-full px-3 py-2.5 rounded-xl bg-slate-800/80 border border-slate-600/60 text-sm text-slate-100 placeholder-slate-500 outline-none focus:border-indigo-400/70 mb-4"
+        />
+        <div className="text-[11px] text-slate-400 mb-1.5">类别（决定星云的颜色族群）</div>
+        <div className="flex flex-wrap gap-1.5 mb-5">
+          {GRAPH_CATEGORIES.map((cat) => {
+            const active = category === cat.id
+            return (
+              <button
+                key={cat.id}
+                onClick={() => setCategory(cat.id)}
+                className={`flex items-center gap-1 text-[11px] px-2.5 py-1.5 rounded-full border transition-colors ${
+                  active ? 'text-white' : 'text-slate-400 border-slate-600/50 hover:text-slate-200'
+                }`}
+                style={active ? { backgroundColor: `${cat.color}59`, borderColor: `${cat.color}88`, boxShadow: `inset 0 0 8px ${cat.color}44` } : undefined}
+              >
+                <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: cat.color }} />
+                {cat.name}
+              </button>
+            )
+          })}
+        </div>
+        <div className="flex gap-2 justify-end">
+          <button onClick={onClose} className="px-3.5 py-2 text-xs rounded-lg bg-slate-800 text-slate-300 hover:bg-slate-700 transition-colors">取消</button>
+          <button
+            onClick={submit}
+            disabled={!name.trim()}
+            className="px-3.5 py-2 text-xs rounded-lg bg-indigo-500 text-white font-medium hover:bg-indigo-400 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+          >让它诞生 ⭐</button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // ============ 主组件 ============
-
-let graphCache = null
-
-/** 演示规模：生长管线铺到多少个知识点（原 mock 204；想压测可改 1000） */
-const DEMO_TARGET_N = 600
 
 // ===== 画质偏好持久化（'auto' | 'hq' | 'lite'，双档制） =====
 const QUALITY_KEY = 'knowledgeGraph.quality.v2'
@@ -1072,12 +1152,30 @@ function detectLowEndDevice() {
 }
 
 export default function KnowledgeGraph3D({
-  /** 外部数据源（localStorage 接入后传入），格式 { nodes, links }，缺省用内置模拟数据 */
+  /** 外部数据源（可选）：同构 { nodes, links }，传入时优先于本地用户数据（未来 reducer 接入口） */
   data,
 }) {
   const [canWebGL] = useState(detectWebGL)
   const [qualityPref, setQualityPref] = useState(readQualityPref) // 'auto' | 'hq' | 'lite'
   const [liteMode, setLiteMode] = useState(detectLowEndDevice)
+
+  // ===== 数据视图双轨：'user' = 我的知识库（真实数据，零起点）| 'demo' = 演示图谱（600 点示范，只读） =====
+  // 支持 ?view=demo 直达演示；演示与用户数据完全隔离，正式包安装后默认为零渲染空状态
+  const [viewMode, setViewMode] = useState(() => {
+    try { return new URLSearchParams(window.location.search).get('view') === 'demo' ? 'demo' : 'user' } catch { return 'user' }
+  })
+  const [userNodes, setUserNodes] = useState(loadUserNodes)
+  const [addModalOpen, setAddModalOpen] = useState(false)
+
+  /** 添加知识点：元数据入列并持久化 → 生长服务按数据指纹重新落位（首个在宇宙原点） */
+  const addKnowledgePoint = useCallback(({ name, category }) => {
+    const node = { id: makeKnowledgeId(name), name, category, createdAt: Date.now() }
+    setUserNodes((prev) => {
+      const next = [...prev, node]
+      saveUserNodes(next)
+      return next
+    })
+  }, [])
 
   // ===== 双画质档状态机：高清(HQ 点云+Bloom) / 流畅(lite 光晕贴图,低配版) =====
   // auto 档按设备探测落到具体档位（低端→流畅，其余→高清，卡顿由 PerfGuard 兜底）；
@@ -1105,46 +1203,33 @@ export default function KnowledgeGraph3D({
   }, [])
   useEffect(() => () => clearTimeout(noticeTimer.current), [])
 
-  // 数据管线：外部 data 直接用；内置 mock 走「冷启动 + 渐进式生长」服务——
-  // 拓扑与位置由 graphGrowth 逐点判定生成（首个节点在原点，后续知识衍生式生长），
-  // 结果持久化到 localStorage，下次启动直接读取；渲染层对此完全无感知
+  // 数据管线（双轨）：演示模式 → 600 点示范数据（独立存储，只读）；
+  // 用户模式 → localStorage 真实数据经「冷启动 + 渐进式生长」服务落位
+  // （首个知识点在原点，后续围绕相关知识点生长，结果按指纹缓存）；
+  // 没有任何知识点时 graph 为 null → 渲染零渲染空状态引导页
   const graph = useMemo(() => {
+    if (viewMode === 'demo') return buildDemoGraph()
     if (data) return data
-    if (!graphCache) {
-      const base = buildMockGraph()
-      // 演示规模扩充：合成叶子补到 DEMO_TARGET_N 个（复用六大类别），
-      // 让「冷启动 + 渐进式生长」在更接近真实知识库的体量下渲染
-      const demoNodes = [...base.nodes]
-      const CATS = ['cs', 'math', 'cog', 'lang', 'art', 'biz']
-      let di = 0
-      while (demoNodes.length < DEMO_TARGET_N) {
-        const cat = CATS[di % CATS.length]
-        demoNodes.push({ id: `demo-${cat}-${di}`, name: `演示知识点 ${di + 1}`, category: cat })
-        di++
-      }
-      const saved = loadSavedGrowth(demoNodes)
-      const grown = saved || growKnowledgeGraph(demoNodes)
-      if (!saved) saveGrowth(demoNodes, grown)
-      graphCache = { nodes: demoNodes, links: grown.links, positions: grown.positions }
-    }
-    return graphCache
-  }, [data])
+    return buildUserGraph(userNodes)
+  }, [viewMode, userNodes, data])
 
   // 布局与索引只随图数据变化重算（一次性预计算，不逐帧跑）
   // 生长模式（内置 mock）：位置直接读取 graphGrowth 的持久化决策结果
   // 外部 data 模式：走 computeStarryLayout 星团布局兜底
+  // graph 为 null（用户知识库零知识点）时产出空索引 —— 本组件随后的
+  // 空状态分支会提前 return，不会走到渲染层，这里只为保证 hooks 安全
   const { layout, layoutMap, nodesById, adjacency, maxDegree } = useMemo(() => {
-    const layoutResult = graph.positions
+    const layoutResult = graph?.positions
       ? graph.nodes.map((nd) => {
           const p = graph.positions[nd.id] || [0, 0, 0]
           return { id: nd.id, pos: new THREE.Vector3(p[0], p[1], p[2]) }
         })
-      : computeStarryLayout(graph.nodes, graph.links)
+      : computeStarryLayout(graph?.nodes ?? [], graph?.links ?? [])
     const lmap = new Map(layoutResult.map((n) => [n.id, n.pos]))
-    const byId = Object.fromEntries(graph.nodes.map((n) => [n.id, n]))
+    const byId = Object.fromEntries((graph?.nodes ?? []).map((n) => [n.id, n]))
     const adj = new Map()
-    for (const n of graph.nodes) adj.set(n.id, new Set())
-    for (const l of graph.links) {
+    for (const n of graph?.nodes ?? []) adj.set(n.id, new Set())
+    for (const l of graph?.links ?? []) {
       adj.get(l.source)?.add(l.target)
       adj.get(l.target)?.add(l.source)
     }
@@ -1192,6 +1277,41 @@ export default function KnowledgeGraph3D({
     )
   }
 
+  // ===== 零渲染空状态：用户还没添加任何知识点（正式包安装后的默认形态） =====
+  // 不挂 Canvas（零 GPU 负担），只渲染 CSS 星空 + 生长引导
+  if (!graph) {
+    return (
+      <div className="relative h-full w-full bg-gradient-to-b from-[#0a1030] via-[#141b36] to-[#252b38] overflow-hidden">
+        <EmptySky />
+        <div className="absolute inset-0 flex flex-col items-center justify-center text-center px-8">
+          <div className="w-20 h-20 rounded-full bg-indigo-500/10 border border-indigo-500/25 flex items-center justify-center text-4xl mb-5 shadow-[0_0_40px_rgba(99,102,241,0.25)]">🧠</div>
+          <h2 className="text-base font-bold text-indigo-100 mb-2">你的知识宇宙还是一片虚空</h2>
+          <p className="text-xs text-slate-400 leading-relaxed mb-7">
+            添加第一个知识点，它将诞生在宇宙中心；<br />
+            之后每个新知识点都会自动生长在相关知识的附近，<br />
+            逐渐织成属于你的知识星云
+          </p>
+          <div className="flex flex-col sm:flex-row gap-2.5">
+            <button
+              onClick={() => setAddModalOpen(true)}
+              className="px-5 py-2.5 text-sm font-medium rounded-xl bg-indigo-500 text-white hover:bg-indigo-400 transition-colors shadow-lg shadow-indigo-500/25"
+            >✨ 添加第一个知识点</button>
+            <button
+              onClick={() => setViewMode('demo')}
+              className="px-5 py-2.5 text-sm rounded-xl bg-slate-800/80 border border-slate-600/50 text-slate-300 hover:text-slate-100 hover:border-slate-500 transition-colors"
+            >🎬 观看演示图谱</button>
+          </div>
+        </div>
+        {addModalOpen && (
+          <AddKnowledgeModal
+            onSave={(meta) => { addKnowledgePoint(meta); setAddModalOpen(false) }}
+            onClose={() => setAddModalOpen(false)}
+          />
+        )}
+      </div>
+    )
+  }
+
   return (
     <div
       className="relative h-full w-full bg-gradient-to-b from-[#0a1030] via-[#141b36] to-[#252b38] overflow-hidden"
@@ -1199,8 +1319,10 @@ export default function KnowledgeGraph3D({
       onPointerMove={onPointerMove}
     >
       <Canvas
+        key={viewMode} /* 视图切换强制重挂：相机按新图规模重新初始化 */
         dpr={liteMode ? 1 : [1, 2]} /* 流畅档锁 1 省 GPU；高清档上限 2 兼顾清晰度 */
-        camera={{ position: [0, 20, 170], fov: 60, near: 0.5, far: 900 }}
+        camera={{ position: graph.nodes.length < 8 ? [0, 14, 60] : [0, 20, 170], fov: 60, near: 0.5, far: 900 }}
+        /* 知识点很少（刚起步）时相机拉近，第一颗星看得清 */
         gl={{ antialias: !liteMode, alpha: true, powerPreference: 'high-performance' }}
       >
         {/* 性能监测：连续两秒 <26fps 自动切入流畅模式（卸载 Bloom、启用光晕贴图、DPR 锁 1） */}
@@ -1263,9 +1385,16 @@ export default function KnowledgeGraph3D({
       {/* 顶部标题栏 + 工具按钮 */}
       <div className="absolute top-0 inset-x-0 p-3 flex items-start justify-between gap-3 pointer-events-none">
         <div className="bg-slate-900/60 backdrop-blur rounded-xl px-3 py-2 pointer-events-auto">
-          <div className="text-sm font-bold text-indigo-100 flex items-center gap-1.5">🧠 知识宇宙</div>
+          <div className="text-sm font-bold text-indigo-100 flex items-center gap-1.5">
+            🧠 知识宇宙
+            {viewMode === 'demo' && (
+              <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/30 font-normal">演示</span>
+            )}
+          </div>
           <div className="text-[10px] text-slate-400 mt-0.5 tabular-nums">
-            {graph.nodes.length} 个知识点 · {graph.links.length} 条关联
+            {viewMode === 'demo'
+              ? '演示数据 · 成品形态示范'
+              : `${graph.nodes.length} 个知识点 · ${graph.links.length} 条关联`}
             {!liteMode && <span className="text-fuchsia-300/90"> · 高画质</span>}
             {liteMode && <span className="text-amber-500/80"> · 流畅模式</span>}
             {activeCategory && (
@@ -1274,6 +1403,20 @@ export default function KnowledgeGraph3D({
           </div>
         </div>
         <div className="flex flex-col gap-1.5 items-end pointer-events-auto">
+          {viewMode === 'user' && (
+            <button
+              onClick={() => setAddModalOpen(true)}
+              title="添加一个知识点，它会自动生长在相关知识的附近"
+              className="w-[62px] px-2.5 py-1.5 rounded-lg text-[11px] font-medium backdrop-blur bg-indigo-500/80 text-white hover:bg-indigo-400 transition-colors"
+            >➕ 添加</button>
+          )}
+          {viewMode === 'demo' && (
+            <button
+              onClick={() => setViewMode('user')}
+              title="退出演示，回到我的知识库"
+              className="w-[62px] px-2.5 py-1.5 rounded-lg text-[11px] font-medium backdrop-blur bg-amber-500/80 text-white hover:bg-amber-400 transition-colors"
+            >↩ 退出演示</button>
+          )}
           <button
             onClick={() => changeQualityPref(cycleQualityPref(qualityPref))}
             title="画质档位：自动（按设备分档）/ 高清（点云+泛光）/ 流畅（低配省电）"

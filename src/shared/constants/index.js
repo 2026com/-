@@ -98,6 +98,8 @@ export const STORAGE_KEYS = {
   SETTINGS: 'growth_app_v1_settings',
   BACKUP: 'growth_app_v1_backup',
   DATA_VERSION: 'growth_app_v1_data_version',
+  /** 3D 知识库：用户知识点元数据 [{ id, name, category, createdAt }]（生长结果由 knowledge-base 服务独立缓存） */
+  KNOWLEDGE_BASE: 'growth_app_v1_knowledge_nodes',
 }
 
 // 默认设置

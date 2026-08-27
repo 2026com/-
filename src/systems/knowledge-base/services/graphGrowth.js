@@ -566,10 +566,13 @@ function graphHash(nodes) {
 /**
  * 读取持久化的生长结果；数据指纹不匹配（节点增删过）时返回 null → 触发重新生长。
  * 位置决策一旦确定就不再变动（应对风险1 的「飘移」问题）。
+ *
+ * @param {Array} nodes 节点元数据数组（指纹校验用）
+ * @param {string} [storageKey] 存储键；用户图谱与演示图谱各自独立存储，互不污染
  */
-export function loadSavedGrowth(nodes) {
+export function loadSavedGrowth(nodes, storageKey = GROWTH_KEY) {
   try {
-    const raw = localStorage.getItem(GROWTH_KEY)
+    const raw = localStorage.getItem(storageKey)
     if (!raw) return null
     const saved = JSON.parse(raw)
     if (!saved || saved.hash !== graphHash(nodes)) return null
@@ -582,9 +585,9 @@ export function loadSavedGrowth(nodes) {
 }
 
 /** 持久化生长结果（位置决策 + 连线），供下次启动直接读取 */
-export function saveGrowth(nodes, growth) {
+export function saveGrowth(nodes, growth, storageKey = GROWTH_KEY) {
   try {
-    localStorage.setItem(GROWTH_KEY, JSON.stringify({
+    localStorage.setItem(storageKey, JSON.stringify({
       hash: graphHash(nodes),
       unit: growth.unit,
       positions: growth.positions,
@@ -596,6 +599,6 @@ export function saveGrowth(nodes, growth) {
 }
 
 /** 清除持久化（调试用：强制下次启动重新生长） */
-export function clearSavedGrowth() {
-  try { localStorage.removeItem(GROWTH_KEY) } catch { /* 忽略 */ }
+export function clearSavedGrowth(storageKey = GROWTH_KEY) {
+  try { localStorage.removeItem(storageKey) } catch { /* 忽略 */ }
 }

@@ -5,7 +5,10 @@ import React, { Suspense, lazy } from 'react'
  *
  * Three.js 相关代码体积较大，通过 React.lazy 拆分为独立 chunk：
  * 仅在用户进入本页面时才下载/执行，不影响应用首屏加载速度。
- * 数据层后续接入 context/reducers/KnowledgeBaseReducer.js。
+ *
+ * 数据层：用户知识点存 localStorage（STORAGE_KEYS.KNOWLEDGE_BASE，自动纳入
+ * 全局备份/恢复）；零知识点时显示「零渲染空状态」引导页（正式包默认形态）；
+ * 600 点演示图谱经「观看演示图谱」入口进入，只读展示成品形态，与用户数据隔离。
  */
 const KnowledgeGraph3D = lazy(() =>
   import('./KnowledgeGraph3D.jsx')
