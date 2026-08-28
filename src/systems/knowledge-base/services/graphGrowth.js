@@ -19,7 +19,7 @@
  *         节点仅放置在目标附近；判定器必须返回结构化 JSON；
  *       - 风险3（位置冲突）：与现有节点距离 < MIN_SEPARATION 时随机微调，
  *         最多尝试 CONFLICT_RETRIES 次。
- *  4. 持久化 —— 每个节点的位置决策结果（连同连线）写入 localStorage，
+ *  4. 持久化 —— 每个节点的位置决策结果（连同连线）写入 IndexedDB（经 services/db.js），
  *     下次启动直接读取；数据指纹变化（增删节点）后自动重新生长。
  *
  * 单位说明：规格中的 1.5~4.0 / 5~8 / 8~15 均为「布局单位」，
@@ -30,6 +30,8 @@
  * 通过 growKnowledgeGraph(nodes, myJudge) / attachKnowledgePoint({..., judgment})
  * 注入即可，其余逻辑无需改动。
  */
+
+import { dbGet, dbSet, dbRemove } from '../../../services/db.js'
 
 // ===== 关系类型常量 =====
 export const RELATION_STRONG = ['因果', '衍生', '延伸']
@@ -572,27 +574,26 @@ function graphHash(nodes) {
  */
 export function loadSavedGrowth(nodes, storageKey = GROWTH_KEY) {
   try {
-    const raw = localStorage.getItem(storageKey)
-    if (!raw) return null
-    const saved = JSON.parse(raw)
+    // 存储已迁至 IndexedDB：改走 db.js 内存镜像（值为应用层对象，无需 JSON.parse）
+    const saved = dbGet(storageKey)
     if (!saved || saved.hash !== graphHash(nodes)) return null
     if (!saved.positions || !Array.isArray(saved.links)) return null
     if (Object.keys(saved.positions).length !== nodes.length) return null
     return saved
   } catch {
-    return null // 隐私模式等读不到 localStorage → 每次重新生长（结果一致，无副作用）
+    return null // 隐私模式等读不到存储 → 每次重新生长（结果一致，无副作用）
   }
 }
 
 /** 持久化生长结果（位置决策 + 连线），供下次启动直接读取 */
 export function saveGrowth(nodes, growth, storageKey = GROWTH_KEY) {
   try {
-    localStorage.setItem(storageKey, JSON.stringify({
+    dbSet(storageKey, {
       hash: graphHash(nodes),
       unit: growth.unit,
       positions: growth.positions,
       links: growth.links,
-    }))
+    })
   } catch {
     /* 写入失败（配额/隐私模式）不阻塞：下次启动会重新生长出一致结果 */
   }
@@ -600,5 +601,5 @@ export function saveGrowth(nodes, growth, storageKey = GROWTH_KEY) {
 
 /** 清除持久化（调试用：强制下次启动重新生长） */
 export function clearSavedGrowth(storageKey = GROWTH_KEY) {
-  try { localStorage.removeItem(storageKey) } catch { /* 忽略 */ }
+  try { dbRemove(storageKey) } catch { /* 忽略 */ }
 }

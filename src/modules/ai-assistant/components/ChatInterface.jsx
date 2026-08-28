@@ -4,6 +4,8 @@ import { uid } from '../../../utils/storage.js'
 import { chatCompletion } from '../services/aiClient.js'
 import { buildContextMessages } from '../services/conversationManager.js'
 import AIConfigPanel from '../../../components/ai/AIConfigPanel.jsx'
+import KnowledgeImportPanel from './KnowledgeImportPanel.jsx'
+import { dbGet, dbSet } from '../../../services/db.js'
 
 /**
  * 常驻可收起侧边 AI 对话窗口
@@ -27,6 +29,8 @@ export default function AIChatSidebar({ onOpenConfig, embedded = false }) {
   const textareaRef = useRef(null)
   // 阶段1：内置配置面板状态（无论 embedded 与否，⚙️ 都能打开模型配置）
   const [configOpen, setConfigOpen] = useState(false)
+  // 添加知识面板（链接 → 解析 → 拆解 → 知识节点入库 IndexedDB → 3D 图谱自动渲染）
+  const [importOpen, setImportOpen] = useState(false)
 
   // ================ 折叠态浮球可拖动（仅垂直方向，右侧贴边保持不变） ================
   const FAB_STORAGE_KEY = 'ai.fab.position.v1'
@@ -35,11 +39,9 @@ export default function AIChatSidebar({ onOpenConfig, embedded = false }) {
   const FAB_MARGIN = 40     // 上下安全边距
   const [fabTop, setFabTop] = useState(() => {
     try {
-      const raw = localStorage.getItem(FAB_STORAGE_KEY)
-      if (raw) {
-        const v = JSON.parse(raw)
-        if (typeof v?.top === 'number' && Number.isFinite(v.top)) return v.top
-      }
+      // 存储已迁至 IndexedDB：改走 db.js 内存镜像（同步读，值为应用层对象）
+      const v = dbGet(FAB_STORAGE_KEY)
+      if (typeof v?.top === 'number' && Number.isFinite(v.top)) return v.top
     } catch {}
     return null // null → 用 CSS 默认（top 1/2，垂直居中）
   })
@@ -56,7 +58,7 @@ export default function AIChatSidebar({ onOpenConfig, embedded = false }) {
   const persistFab = useCallback((top) => {
     if (persistTimer.current) clearTimeout(persistTimer.current)
     persistTimer.current = setTimeout(() => {
-      try { localStorage.setItem(FAB_STORAGE_KEY, JSON.stringify({ top })) } catch {}
+      try { dbSet(FAB_STORAGE_KEY, { top }) } catch {}
     }, 80)
   }, [])
 
@@ -386,6 +388,13 @@ export default function AIChatSidebar({ onOpenConfig, embedded = false }) {
           {/* 输入区 */}
           <div className="shrink-0 border-t border-slate-100 p-3 bg-slate-50/50">
             <div className="flex items-end gap-2 bg-white rounded-xl border border-slate-200 focus-within:border-indigo-400 focus-within:ring-2 focus-within:ring-indigo-100 transition-all p-2">
+              <button
+                onClick={() => setImportOpen(true)}
+                disabled={loading}
+                className="w-9 h-9 shrink-0 rounded-lg bg-slate-100 hover:bg-indigo-50 disabled:opacity-50 text-slate-500 hover:text-indigo-600 flex items-center justify-center text-base transition-all touch-feedback"
+                title="添加知识（粘贴链接，AI 拆解入库）"
+                aria-label="添加知识"
+              >🔗</button>
               <textarea
                 ref={textareaRef}
                 value={inputValue}
@@ -423,6 +432,16 @@ export default function AIChatSidebar({ onOpenConfig, embedded = false }) {
           onClose={() => setConfigOpen(false)}
           dispatch={dispatch}
           aiConfig={aiConfig}
+        />
+      )}
+
+      {/* 添加知识：链接 → Jina 解析 → DeepSeek 拆解 → 知识节点入库 IndexedDB → 3D 图谱自动渲染 */}
+      {importOpen && (
+        <KnowledgeImportPanel
+          onClose={() => setImportOpen(false)}
+          dispatch={dispatch}
+          aiConfig={aiConfig}
+          onOpenConfig={onOpenConfig}
         />
       )}
     </>

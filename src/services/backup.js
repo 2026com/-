@@ -1,4 +1,5 @@
 import { STORAGE_KEYS } from '../shared/constants/index.js'
+import { storage } from './storage.js'
 
 /**
  * 备份恢复服务 —— 自 storage.js 原样拆分（只移动代码位置，不改业务逻辑）
@@ -9,8 +10,10 @@ import { STORAGE_KEYS } from '../shared/constants/index.js'
 export function createLocalBackup() {
   const snapshot = {}
   Object.values(STORAGE_KEYS).forEach(k => {
-    const v = localStorage.getItem(k)
-    if (v) snapshot[k] = v
+    // 存储已迁至 IndexedDB：经 storage 门面读取内存镜像；
+    // 备份文件格式保持与旧版一致（值为 JSON 字符串）
+    const v = storage.get(k)
+    if (v !== null && v !== undefined) snapshot[k] = JSON.stringify(v)
   })
   const blob = new Blob([JSON.stringify(snapshot, null, 2)], { type: 'application/json' })
   const url = URL.createObjectURL(blob)
@@ -32,7 +35,11 @@ export function restoreFromBackup(file) {
         const data = JSON.parse(e.target.result)
         Object.entries(data).forEach(([k, v]) => {
           if (Object.values(STORAGE_KEYS).includes(k)) {
-            localStorage.setItem(k, v)
+            // 存储已迁至 IndexedDB：备份文件里的 JSON 字符串先反序列化再入库
+            // （与旧版「写原始字符串 + 读取时 JSON.parse」的最终状态等价）
+            let value = v
+            try { if (typeof value === 'string') value = JSON.parse(value) } catch { /* 非 JSON 字符串原样保留 */ }
+            storage.set(k, value)
           }
         })
         resolve(true)

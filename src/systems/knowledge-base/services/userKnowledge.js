@@ -16,6 +16,7 @@
  */
 
 import { STORAGE_KEYS } from '../../../shared/constants/index.js'
+import { storage } from '../../../services/storage.js'
 import { growKnowledgeGraph, loadSavedGrowth, saveGrowth } from './graphGrowth.js'
 import { buildMockGraph } from './mockKnowledgeGraph.js'
 
@@ -35,8 +36,8 @@ const DEMO_TARGET_N = 600
  */
 export function loadUserNodes() {
   try {
-    const raw = localStorage.getItem(STORAGE_KEYS.KNOWLEDGE_BASE)
-    const list = raw ? JSON.parse(raw) : []
+    // 存储已迁至 IndexedDB：改经 storage 门面读取（值为应用层对象）
+    const list = storage.get(STORAGE_KEYS.KNOWLEDGE_BASE, [])
     return Array.isArray(list) ? list : []
   } catch {
     return []
@@ -46,7 +47,7 @@ export function loadUserNodes() {
 /** 持久化用户知识点列表 */
 export function saveUserNodes(userNodes) {
   try {
-    localStorage.setItem(STORAGE_KEYS.KNOWLEDGE_BASE, JSON.stringify(userNodes))
+    storage.set(STORAGE_KEYS.KNOWLEDGE_BASE, userNodes)
   } catch { /* 写入失败不阻塞（隐私模式等），下次保存会重试 */ }
 }
 

@@ -1,4 +1,5 @@
 import React, { Component } from 'react'
+import { dbClearByPrefix } from '../../services/db.js'
 
 /**
  * 全局错误边界（阶段1 新建）
@@ -31,12 +32,16 @@ export default class ErrorBoundary extends Component {
   }
 
   handleClearData = () => {
-    try {
-      Object.keys(localStorage).forEach(k => {
-        if (k.startsWith('growth_app_v1_')) localStorage.removeItem(k)
-      })
-    } catch (_) { /* ignore */ }
-    window.location.reload()
+    // 存储已迁至 IndexedDB：先清库（内存镜像 + IndexedDB），再清理旧 localStorage
+    // 残留（防止下次启动被「一次性迁移」复活旧数据），最后刷新页面
+    dbClearByPrefix('growth_app_v1_').then(() => {
+      try {
+        Object.keys(localStorage).forEach(k => {
+          if (k.startsWith('growth_app_v1_')) localStorage.removeItem(k)
+        })
+      } catch (_) { /* ignore */ }
+      window.location.reload()
+    })
   }
 
   render() {

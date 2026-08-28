@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react'
 import { useAppState, useAppDispatch } from '../../context/AppContext.jsx'
 import { useMemo } from 'react'
 import { dateUtil } from '../../utils/storage.js'
+import { useAppTheme, toggleTheme } from '../../services/theme.js'
 
 /**
  * 顶部状态栏 V2（手机端适配）
@@ -115,6 +116,13 @@ export default function TopStatusBar() {
 
       {/* 右侧：功能按钮 */}
       <div className="flex items-center gap-2">
+        <button
+          onClick={() => toggleTheme()}
+          title={theme === 'dark' ? '切换为浅色模式' : '切换为深色模式'}
+          className="px-3 py-1.5 text-xs rounded-md bg-white/10 hover:bg-white/20 touch-feedback transition-colors"
+        >
+          {theme === 'dark' ? '☀️ 浅色' : '🌙 深色'}
+        </button>
         <button
           onClick={() => dispatch({ type: 'TOGGLE_CALENDAR' })}
           className={`px-3 py-1.5 text-xs rounded-md touch-feedback transition-colors ${state.ui.calendarOpen ? 'bg-yellow-400 text-slate-900 font-semibold' : 'bg-white/10 hover:bg-white/20'}`}

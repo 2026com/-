@@ -1,14 +1,16 @@
 import { STORAGE_KEYS } from '../shared/constants/index.js'
+import { dbGet, dbSet, dbRemove, dbClearAll } from './db.js'
 
-// LocalStorage 封装工具 V1.0
-// 禁止任何云端操作，所有读写均走本地
+// 存储封装工具 V2.0（IndexedDB 迁移：内存镜像适配层）
+// 禁止任何云端操作，所有读写均走本地（IndexedDB，统一经 services/db.js）
+// 对外 API 与 V1.0（localStorage 版）完全一致：同步签名、失败不抛异常。
+// 数据物理存储在 IndexedDB（首次运行自动从旧 localStorage 迁移），
+// 本层仅是 db.js 内存镜像的同步门面 —— 全部业务调用方零改动。
 
 export const storage = {
   get(key, fallback = null) {
     try {
-      const raw = localStorage.getItem(key)
-      if (raw === null || raw === undefined) return fallback
-      return JSON.parse(raw)
+      return dbGet(key, fallback)
     } catch (e) {
       console.warn('[storage get fail]', key, e)
       return fallback
@@ -16,8 +18,7 @@ export const storage = {
   },
   set(key, value) {
     try {
-      localStorage.setItem(key, JSON.stringify(value))
-      return true
+      return dbSet(key, value)
     } catch (e) {
       console.warn('[storage set fail]', key, e)
       return false
@@ -25,14 +26,17 @@ export const storage = {
   },
   remove(key) {
     try {
-      localStorage.removeItem(key)
-      return true
+      return dbRemove(key)
     } catch (e) {
       return false
     }
   },
   clearAll() {
-    Object.values(STORAGE_KEYS).forEach(k => localStorage.removeItem(k))
+    try {
+      return dbClearAll(Object.values(STORAGE_KEYS))
+    } catch (e) {
+      return false
+    }
   }
 }
 

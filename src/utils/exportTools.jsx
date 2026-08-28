@@ -1,4 +1,6 @@
 import React, { useEffect } from 'react'
+import { storage } from '../services/storage.js'
+import { STORAGE_KEYS } from '../shared/constants/index.js'
 
 /**
  * 全局导出工具 V1.0
@@ -75,12 +77,13 @@ export default function ExportToolsMount() {
       const detail = e.detail || {}
       if (detail.type === 'image') await exportMindMapAsImage()
       if (detail.type === 'excel') {
+        // 存储已迁至 IndexedDB：改经 storage 门面（内存镜像）读取，业务语义不变
         const payload = {
-          nodes: JSON.parse(localStorage.getItem('growth_app_v1_nodes') || '[]'),
-          habits: JSON.parse(localStorage.getItem('growth_app_v1_habits') || '[]'),
-          checkins: JSON.parse(localStorage.getItem('growth_app_v1_checkins') || '{}'),
-          timerRecords: JSON.parse(localStorage.getItem('growth_app_v1_timer_records') || '[]'),
-          reports: JSON.parse(localStorage.getItem('growth_app_v1_reports') || '[]'),
+          nodes: storage.get(STORAGE_KEYS.NODES, []),
+          habits: storage.get(STORAGE_KEYS.HABITS, []),
+          checkins: storage.get(STORAGE_KEYS.CHECKINS, {}),
+          timerRecords: storage.get(STORAGE_KEYS.TIMER_RECORDS, []),
+          reports: storage.get(STORAGE_KEYS.REPORTS, []),
         }
         await exportExcel('all', payload)
       }

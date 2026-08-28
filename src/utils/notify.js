@@ -51,13 +51,16 @@ export async function initNativeNotifications() {
       console.warn('[notify] 无法加载 LocalNotifications 模块 — capacitor.plugins.json 可能缺失，请执行 npx cap sync android')
       return false
     }
+    // v2 渠道：修复「提醒无声音」——'default' 不是合法的 res/raw 资源名，
+    // 导致渠道实际无铃声；改用打包进 APK 的 res/raw/alarm.wav（双频提示音）。
+    // Android 渠道创建后属性不可变，故启用新渠道 id（growth_v2）让铃声生效。
     await LocalNotifications.createChannel({
-      id: 'growth',
+      id: 'growth_v2',
       name: '成长提醒',
-      description: '节点闹钟、习惯打卡与番茄钟提醒',
-      importance: 5, // IMPORTANCE_HIGH
+      description: '节点闹钟、习惯打卡与番茄钟提醒（系统级铃声）',
+      importance: 5, // IMPORTANCE_HIGH：横幅 + 声音 + 锁屏显示
       visibility: 1, // VISIBILITY_PUBLIC：锁屏也显示
-      sound: 'default',
+      sound: 'alarm.wav',
       vibration: true,
     })
     _channelReady = true
@@ -119,8 +122,8 @@ export async function scheduleNativeNotification(opts) {
           id: numId(opts.id),
           title: opts.title || '成长提醒',
           body: opts.body || '',
-          channelId: 'growth',
-          schedule: { at: new Date(at), allowWhileIdle: true },
+          channelId: 'growth_v2',
+          schedule: { at: new Date(at), allowWhileIdle: true, exact: true },
         },
       ],
     })

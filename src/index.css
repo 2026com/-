@@ -132,3 +132,65 @@ html, body, #root {
   animation: nodePopIn 0.28s cubic-bezier(0.16, 1, 0.3, 1);
   transform-origin: center;
 }
+
+/* ===== 深色模式（html.theme-dark）========================================
+   色值对齐 3D 知识库背景家族（#0a1030 / #141b36 / #252b38 → 深蓝黑）。
+   实现方式：Tailwind 工具类在深色根作用域下整表重映射，
+   零组件改动覆盖：打卡页 / 横线本 / 复盘页 / 抽屉 / 底部Tab / 弹窗 / AI面板。
+   浅色为默认；由 TopStatusBar 与显示控制悬浮球切换，IndexedDB 持久化。 */
+html.theme-dark body { background: #0f1729; color: #dbe2f3; }
+html.theme-dark .bg-system-bg { background-color: #0f1729 !important; }
+html.theme-dark .bg-white { background-color: #17203a !important; }
+html.theme-dark .bg-white\/95 { background-color: rgba(23, 32, 58, 0.95) !important; }
+html.theme-dark .bg-white\/90 { background-color: rgba(23, 32, 58, 0.9) !important; }
+html.theme-dark .bg-white\/60 { background-color: rgba(23, 32, 58, 0.6) !important; }
+html.theme-dark .bg-white\/50 { background-color: rgba(23, 32, 58, 0.5) !important; }
+html.theme-dark .bg-white\/10 { background-color: rgba(148, 163, 208, 0.14) !important; }
+html.theme-dark .bg-white\/20 { background-color: rgba(148, 163, 208, 0.24) !important; }
+html.theme-dark .bg-slate-50 { background-color: #131c33 !important; }
+html.theme-dark .bg-slate-100 { background-color: #1b2643 !important; }
+html.theme-dark .bg-slate-200 { background-color: #26325a !important; }
+html.theme-dark .bg-slate-800 { background-color: #1f2a4d !important; }
+html.theme-dark .bg-slate-900 { background-color: #0d1526 !important; }
+html.theme-dark .bg-indigo-50 { background-color: #1e2a55 !important; }
+html.theme-dark .bg-indigo-100 { background-color: #243263 !important; }
+html.theme-dark .bg-emerald-50 { background-color: #0f2b1e !important; }
+html.theme-dark .bg-emerald-100 { background-color: #123a26 !important; }
+html.theme-dark .bg-rose-50 { background-color: #38141f !important; }
+html.theme-dark .bg-rose-100 { background-color: #3f1a27 !important; }
+html.theme-dark .hover\:bg-slate-50:hover { background-color: #131c33 !important; }
+html.theme-dark .hover\:bg-slate-100:hover { background-color: #1b2643 !important; }
+html.theme-dark .hover\:bg-slate-200:hover { background-color: #26325a !important; }
+html.theme-dark .hover\:bg-indigo-50:hover { background-color: #1e2a55 !important; }
+html.theme-dark .hover\:bg-rose-50:hover { background-color: #38141f !important; }
+html.theme-dark .hover\:bg-emerald-50:hover { background-color: #0f2b1e !important; }
+html.theme-dark .border-slate-100 { border-color: #243055 !important; }
+html.theme-dark .border-slate-200 { border-color: #2b3863 !important; }
+html.theme-dark .border-slate-300 { border-color: #364677 !important; }
+html.theme-dark .text-slate-800 { color: #dfe6f7 !important; }
+html.theme-dark .text-slate-700 { color: #c9d3ec !important; }
+html.theme-dark .text-slate-600 { color: #a8b3d8 !important; }
+html.theme-dark .text-slate-500 { color: #8c97c0 !important; }
+html.theme-dark .text-slate-400 { color: #6f7ca6 !important; }
+html.theme-dark .text-slate-300 { color: #5b6890 !important; }
+html.theme-dark .text-indigo-600 { color: #93a5ff !important; }
+html.theme-dark .text-indigo-700 { color: #a5b4fc !important; }
+html.theme-dark .text-emerald-700 { color: #4ade80 !important; }
+html.theme-dark .text-emerald-600 { color: #34d399 !important; }
+html.theme-dark .text-emerald-500 { color: #34d399 !important; }
+html.theme-dark .text-rose-600 { color: #fb7185 !important; }
+html.theme-dark .text-rose-500 { color: #fb7185 !important; }
+html.theme-dark .hover\:text-slate-600:hover { color: #a8b3d8 !important; }
+html.theme-dark .hover\:text-indigo-600:hover { color: #93a5ff !important; }
+html.theme-dark input::placeholder, html.theme-dark textarea::placeholder { color: #4d5a80 !important; opacity: 1; }
+html.theme-dark .placeholder\:text-slate-300::placeholder { color: #4d5a80 !important; }
+/* 深色下的幕布横线草稿格（canvas-lined 横线颜色同步变深） */
+html.theme-dark .canvas-lined {
+  background-image: repeating-linear-gradient(
+    0deg,
+    transparent,
+    transparent 31px,
+    #2c3c66 31px,
+    #2c3c66 32px
+  );
+}

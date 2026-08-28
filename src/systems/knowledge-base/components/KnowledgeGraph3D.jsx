@@ -7,6 +7,7 @@ import * as THREE from 'three'
 import { GRAPH_CATEGORIES, CATEGORY_MAP } from '../services/mockKnowledgeGraph.js'
 import { buildDemoGraph, buildUserGraph, loadUserNodes, saveUserNodes, makeKnowledgeId } from '../services/userKnowledge.js'
 import { makeLabelTexture, getGlowTexture, makeDotTexture } from '../services/graphTextures.js'
+import { dbGet, dbSet } from '../../../services/db.js'
 
 /**
  * 3D 知识图谱 —— 「知识宇宙」视觉版（KnowledgeGraph3D）
@@ -1112,13 +1113,14 @@ function AddKnowledgeModal({ onSave, onClose }) {
 const QUALITY_KEY = 'knowledgeGraph.quality.v2'
 function readQualityPref() {
   try {
-    const v = localStorage.getItem(QUALITY_KEY)
+    // 存储已迁至 IndexedDB：改走 db.js 内存镜像（原始字符串值经迁移原样保留）
+    const v = dbGet(QUALITY_KEY)
     if (v === 'hq' || v === 'lite' || v === 'auto') return v
   } catch { /* 隐私模式等场景读不到就回默认 */ }
   return 'auto'
 }
 function writeQualityPref(v) {
-  try { localStorage.setItem(QUALITY_KEY, v) } catch { /* 忽略写入失败 */ }
+  try { dbSet(QUALITY_KEY, v) } catch { /* 忽略写入失败 */ }
 }
 function cycleQualityPref(pref) {
   return pref === 'auto' ? 'hq' : pref === 'hq' ? 'lite' : 'auto'
@@ -1175,6 +1177,14 @@ export default function KnowledgeGraph3D({
       saveUserNodes(next)
       return next
     })
+  }, [])
+
+  // ===== 跨组件同步：AI 助手「添加知识」入库后广播 knowledge:nodes-added =====
+  // 复用既有渲染管线：setUserNodes → graph useMemo(buildUserGraph) → 指纹变化自动落位渲染
+  useEffect(() => {
+    const onNodesAdded = () => setUserNodes(loadUserNodes())
+    window.addEventListener('knowledge:nodes-added', onNodesAdded)
+    return () => window.removeEventListener('knowledge:nodes-added', onNodesAdded)
   }, [])
 
   // ===== 双画质档状态机：高清(HQ 点云+Bloom) / 流畅(lite 光晕贴图,低配版) =====
@@ -1237,6 +1247,11 @@ export default function KnowledgeGraph3D({
     for (const s of adj.values()) maxDeg = Math.max(maxDeg, s.size)
     return { layout: layoutResult, layoutMap: lmap, nodesById: byId, adjacency: adj, maxDegree: maxDeg }
   }, [graph])
+
+  // 相机基准距离（与下方 Canvas camera 初始 position 保持一致）。
+  // 对称缩放：拉近/拉远各 4 倍 —— 修复此前 minDistance=14 / maxDistance=380 不对称
+  //（老配置下放大可达约 12 倍而缩小仅约 2 倍）。
+  const camBaseDist = graph && graph.nodes && graph.nodes.length < 8 ? 60 : 170
 
   const [selectedId, setSelectedId] = useState(null)
   const [hoveredId, setHoveredId] = useState(null)
@@ -1336,8 +1351,8 @@ export default function KnowledgeGraph3D({
           dampingFactor={0.08}
           rotateSpeed={0.7}
           zoomSpeed={0.9}
-          minDistance={14}
-          maxDistance={380}
+          minDistance={camBaseDist / 4}
+          maxDistance={camBaseDist * 4}
           autoRotate={autoRotate}
           autoRotateSpeed={0.6}
           makeDefault

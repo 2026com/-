@@ -1,6 +1,7 @@
 import React, { useEffect } from 'react'
 import { useAppState, useAppDispatch } from '../../context/AppContext.jsx'
 import { dateUtil } from '../../utils/storage.js'
+import { dbGet, dbSet } from '../../services/db.js'
 
 /**
  * 阶段4：断卡提醒机制
@@ -22,8 +23,9 @@ export default function StreakAlert() {
       else break
     }
     const key = 'streak_alert_shown_' + dateUtil.today()
-    if (missedDays >= 3 && !localStorage.getItem(key)) {
-      localStorage.setItem(key, '1')
+    // 存储已迁至 IndexedDB：改走 db.js 内存镜像（同步读，启动门已保证镜像就绪）
+    if (missedDays >= 3 && !dbGet(key)) {
+      dbSet(key, '1')
       setTimeout(() => {
         dispatch({
           type: 'PUSH_MODAL',

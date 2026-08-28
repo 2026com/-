@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react'
 import { loadNotes, persistNotes, createNoteObj } from '../../services/notesStorage.js'
+import { useAppTheme } from '../../../../services/theme.js'
 
 /**
  * 长期目标页 · 横线本形式
@@ -13,6 +14,8 @@ const LINE_H = 32          // 行高 = 横线间距（px），文字基线落在
 const PAD_TOP = 16         // 稿纸顶部内边距（横线背景需按此偏移对齐）
 
 export default function LongTermGoalsPage() {
+  const theme = useAppTheme()
+  const dark = theme === 'dark'
   // 单本笔记：首次进入若无历史数据则为 null，首次输入时自动生成（无任何"新建"入口）
   const [note, setNote] = useState(() => {
     const list = loadNotes()
@@ -71,7 +74,7 @@ export default function LongTermGoalsPage() {
           lineHeight: `${LINE_H}px`,
           fontSize: '14px',
           padding: `${PAD_TOP}px 28px`,
-          backgroundImage: `repeating-linear-gradient(to bottom, transparent, transparent ${LINE_H - 1}px, #dbe3ee ${LINE_H - 1}px, #dbe3ee ${LINE_H}px)`,
+          backgroundImage: `repeating-linear-gradient(to bottom, transparent, transparent ${LINE_H - 1}px, ${dark ? '#2c3c66' : '#dbe3ee'} ${LINE_H - 1}px, ${dark ? '#2c3c66' : '#dbe3ee'} ${LINE_H}px)`,
           backgroundAttachment: 'local',   // 横线随内容一起滚动
           backgroundPosition: `0px ${PAD_TOP}px`, // 横线与首行文字对齐
         }}
