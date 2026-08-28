@@ -39,3 +39,23 @@ export function isLandscapeNow() {
     return false
   }
 }
+
+/** 是否已在电池优化白名单（null = 环境/插件不支持） */
+export async function isIgnoringBatteryOptimizations() {
+  try {
+    const r = await AppBridge.isIgnoringBatteryOptimizations()
+    return !!r.ignored
+  } catch {
+    return null
+  }
+}
+
+/** 请求加入电池优化白名单（拉起系统弹窗）。返回 'already' | 'launched' | null */
+export async function requestIgnoreBatteryOptimization() {
+  try {
+    const r = await AppBridge.requestIgnoreBatteryOptimizations()
+    return (r && r.status) || null
+  } catch {
+    return null
+  }
+}

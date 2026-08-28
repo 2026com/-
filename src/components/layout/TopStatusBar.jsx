@@ -4,6 +4,7 @@ import { useMemo } from 'react'
 import { dateUtil } from '../../utils/storage.js'
 import { useAppTheme, toggleTheme } from '../../services/theme.js'
 import { reminderSelfTest } from '../../utils/notify.js'
+import { isIgnoringBatteryOptimizations, requestIgnoreBatteryOptimization } from '../../services/device.js'
 
 /**
  * 顶部状态栏 V2（手机端适配）
@@ -148,6 +149,29 @@ export default function TopStatusBar() {
           className="px-3 py-1.5 text-xs rounded-md bg-white/10 hover:bg-white/20 touch-feedback transition-colors"
         >
           🔔 自检
+        </button>
+        <button
+          onClick={async () => {
+            try {
+              const ignored = await isIgnoringBatteryOptimizations()
+              if (ignored === true) {
+                dispatch({ type: 'PUSH_MODAL', payload: { type: 'toast', message: '✅ 已在电池优化白名单中，提醒可准时响铃' } })
+                return
+              }
+              const s = await requestIgnoreBatteryOptimization()
+              if (s === 'launched') {
+                dispatch({ type: 'PUSH_MODAL', payload: { type: 'toast', message: '🔋 请在系统弹窗中点「允许」，锁屏/杀进程后提醒也能准时响铃' } })
+              } else if (s === 'already') {
+                dispatch({ type: 'PUSH_MODAL', payload: { type: 'toast', message: '✅ 已在电池优化白名单中' } })
+              } else {
+                dispatch({ type: 'PUSH_MODAL', payload: { type: 'toast', message: '⚠️ 当前环境不支持该项设置' } })
+              }
+            } catch { /* ignore */ }
+          }}
+          title="提醒保活：加入电池优化白名单（各品牌通用），确保锁屏/杀进程后提醒准时响铃"
+          className="px-3 py-1.5 text-xs rounded-md bg-white/10 hover:bg-white/20 touch-feedback transition-colors"
+        >
+          🔋 保活
         </button>
         <button
           onClick={() => dispatch({ type: 'TOGGLE_CALENDAR' })}
