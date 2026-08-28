@@ -42,6 +42,7 @@ export default function TopStatusBar() {
   const state = useAppState()
   const dispatch = useAppDispatch()
   const { activeTab } = state.ui
+  const theme = useAppTheme()
 
   // ===== V2：安全区顶部补偿（CSS env 失效时 JS 兜底）=====
   const [safeTop, setSafeTop] = useState(() => detectSafeTop())
