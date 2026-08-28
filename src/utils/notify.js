@@ -79,6 +79,7 @@ export function initNativeNotifications() {
         exactAlarm: res.exactAlarm !== false,
         notificationsEnabled: res.notificationsEnabled !== false,
         detail: (res && res.detail) || [],
+        lastAlarmResult: (res && res.lastAlarmResult) || '',
       }
       if (res.hasNotify) {
         _activeChannel = 'growth_notify'
@@ -332,12 +333,17 @@ export async function reminderSelfTest() {
       body: '看到此条 = 定时提醒链路正常（锁屏/杀进程也能到）',
       at: Date.now() + 3000,
     }), 8000)
+    await new Promise(r => setTimeout(r, 2000)) // 等后台线程完成闹钟武装
+    const lar = (_channelState && _channelState.lastAlarmResult) || ''
+    if (lar && lar !== '尚未执行过调度') {
+      const map = { alarm_clock: '✓ 用户级闹钟（最强，杀进程也触发）', exact: '✓ 精确闹钟', inexact: '⚠ 仅非精确闹钟（可能延迟）' }
+      lines.push(`   闹钟武装结果：${map[lar] || ('✗ 全部被 ROM 拦截（' + lar + '）→ 进程被杀后只能靠守护服务')}`)
+    }
     lines.push('   ✓ 已提交调度（原生后台执行）→ 3~18 秒内应弹出「定时」通知')
-    lines.push('      （3 秒内弹 = 系统闹钟路径通；稍晚弹 = 守护服务兜底生效，均属正常）')
   } catch (e) {
     lines.push('   ↳ 调度环节卡住/失败，请截图回复我')
   }
 
-  lines.push('5. 结果解读：4a、4b 都弹出 = 提醒链路修复完成；只 4a 弹 → 检查「闹钟和提醒」权限后重试；都没弹 → 通知被 ROM 拦截（截图回复我）。')
+  lines.push('5. 结果解读：4a、4b 都弹出 = 链路正常；划掉后台要准时响 → 请在最近任务里下拉本 App 卡片点🔒锁定（锁定后进程不被杀，守护服务保准点）。')
   return lines
 }

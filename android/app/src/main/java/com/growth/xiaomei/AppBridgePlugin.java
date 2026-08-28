@@ -182,6 +182,7 @@ public class AppBridgePlugin extends Plugin {
             ret.put("hasNotify", hasNotify);
             ret.put("exactAlarm", exact);
             ret.put("notificationsEnabled", enabled);
+            ret.put("lastAlarmResult", NotificationScheduler.getLastAlarmResult(getContext()));
             call.resolve(ret);
         } catch (Exception e) {
             call.reject("查询失败: " + e.getMessage());

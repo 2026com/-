@@ -49,27 +49,57 @@ public final class NotificationScheduler {
         });
     }
 
-    /** 武装定时：setAlarmClock（用户级闹钟，最高优先级）→ 精确闹钟 → 非精确闹钟；已过期立即弹。 */
+    /** 武装定时：setAlarmClock（用户级闹钟，最高优先级）→ 精确闹钟 → 非精确闹钟；已过期立即弹。
+     *  每次尝试结果持久化（自检回读定位 ROM 对哪级闹钟放行）。 */
     private static void armAlarm(Context ctx, int id, String title, String body, long atMs) {
         long now = System.currentTimeMillis();
         if (atMs <= now + 500) { fireNow(ctx, id, title, body); return; }
         AlarmManager am = (AlarmManager) ctx.getSystemService(Context.ALARM_SERVICE);
-        if (am == null) { fireNow(ctx, id, title, body); return; }
+        if (am == null) { setLastAlarmResult(ctx, "failed(no service)"); fireNow(ctx, id, title, body); return; }
         PendingIntent pi = alarmPendingIntent(ctx, id, title, body);
         // ① setAlarmClock：用户可见闹钟（状态栏闹钟图标），ROM 清理后台不取消、DOZE 必触发
         try {
             AlarmManager.AlarmClockInfo info = new AlarmManager.AlarmClockInfo(atMs, contentPendingIntent(ctx, id));
             am.setAlarmClock(info, pi);
+            setLastAlarmResult(ctx, "alarm_clock");
             return;
-        } catch (Throwable e) { /* 「闹钟和提醒」权限未开 → 降级精确闹钟 */ }
+        } catch (Throwable e) {
+            setLastAlarmResult(ctx, "alarm_clock失败:" + e.getClass().getSimpleName());
+        }
         // ② 精确闹钟
         try {
             am.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, atMs, pi);
+            setLastAlarmResult(ctx, "exact");
             return;
-        } catch (Throwable e) { /* 权限被收 → 降级非精确 */ }
+        } catch (Throwable e) {
+            setLastAlarmResult(ctx, "exact失败:" + e.getClass().getSimpleName());
+        }
         // ③ 非精确（可能延迟几分钟）；仍失败由 guard 服务兜底
-        try { am.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, atMs, pi); }
-        catch (Throwable e2) { /* guard 兜底 */ }
+        try {
+            am.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, atMs, pi);
+            setLastAlarmResult(ctx, "inexact");
+        } catch (Throwable e) {
+            setLastAlarmResult(ctx, "failed(全部被拦):" + e.getClass().getSimpleName());
+        }
+    }
+
+    static final String KEY_ALARM_RESULT = "last_alarm_result";
+
+    static void setLastAlarmResult(Context ctx, String result) {
+        try {
+            ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+               .edit().putString(KEY_ALARM_RESULT, result).apply();
+        } catch (Throwable t) { /* ignore */ }
+    }
+
+    /** 最近一次闹钟武装结果（自检诊断用）：alarm_clock/exact/inexact/failed... */
+    public static String getLastAlarmResult(Context ctx) {
+        try {
+            return ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+                      .getString(KEY_ALARM_RESULT, "尚未执行过调度");
+        } catch (Throwable t) {
+            return "未知";
+        }
     }
 
     private static void fireNow(Context ctx, int id, String title, String body) {
