@@ -31,6 +31,14 @@
 
         </activity>
 
+        <!-- 通知调度（原生自实现链路）：闹钟触发接收器 + 开机恢复 -->
+        <receiver android:name=".NotificationAlarmReceiver" android:exported="false" />
+        <receiver android:name=".BootReceiver" android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+            </intent-filter>
+        </receiver>
+
         <provider
             android:name="androidx.core.content.FileProvider"
             android:authorities="${applicationId}.fileprovider"

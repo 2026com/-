@@ -1,15 +1,24 @@
 /**
- * 系统通知工具（双通道：PWA 浏览器通知 + Capacitor 原生通知）
+ * 系统通知工具（双通道：PWA 浏览器通知 + 原生系统通知）
  *
  * 能力边界（重要）：
  * - PWA（浏览器标签页）：应用「打开/后台/锁屏（页面未关）」时通知可靠可达 ✅；
  *   应用「完全关闭」纯前端无法准时提醒 ❌。
- * - Capacitor APK（Android 原生壳）：通过 @capacitor/local-notifications 把提醒
- *   「调度」到 Android 系统时钟 → 锁屏 ✅、应用完全关闭/杀进程 ✅（由系统按时触发）。
- *   注意：Android 13+ 需动态申请 POST_NOTIFICATIONS 权限；精确闹钟依赖 SCHEDULE_EXACT_ALARM。
+ * - Capacitor APK（Android 原生壳）：通知链路走「自建 AppBridge 桥 + 原生 AlarmManager/
+ *   BroadcastReceiver/NotificationManager」（见 android NotificationScheduler.java），
+ *   锁屏 ✅、应用完全关闭/杀进程 ✅、重启后由 BootReceiver 恢复 ✅。
+ *   背景：红米 K60 实测 @capacitor/local-notifications 插件桥的通知/闹钟类调用在该 ROM
+ *   上全部永久挂起（仅纯本地查询幸存），故原生链路完全自有实现，不再经插件桥调度。
+ *   注意：Android 13+ 需 POST_NOTIFICATIONS 权限；精确闹钟依赖「闹钟和提醒」权限，
+ *   未授予时自动降级为非精确闹钟（可能延迟几分钟）。
  */
 
 import { LocalNotifications } from '@capacitor/local-notifications'
+import { registerPlugin } from '@capacitor/core'
+
+/** 自建原生桥（AppBridge）：K60 实测 LocalNotifications 插件桥的通知/闹钟类调用
+ *  在该 ROM 上全部挂起，而自建桥正常，故通知链路完全走自有原生代码。 */
+const AppBridge = registerPlugin('AppBridge')
 
 const ICON = '/pwa-icon-192x192.png'
 
@@ -39,11 +48,12 @@ function numId(str) {
   return (h % 2147483646) + 1
 }
 
-let _initDone = false       // 渠道初始化流程已执行完毕（无论结果如何）
-let _activeChannel = null   // 经 listChannels 确认存在的渠道 id；null = 无可用渠道（调度时由插件内置 default 渠道兜底）
+let _initDone = false       // 渠道检查流程已执行完毕（无论结果如何）
+let _activeChannel = null   // 经自建桥确认存在的渠道 id（用于自检展示与诊断）
+let _channelState = null    // 渠道诊断信息（铃声/兼容渠道是否就绪、精确闹钟权限等）
 let _initPromise = null
 
-/** 当前生效的渠道 id（null 表示调度时不带 channelId，用插件内置 default 渠道） */
+/** 当前生效的渠道 id（null 表示由原生侧自动选择渠道） */
 export function getActiveChannel() {
   return _activeChannel
 }
@@ -54,59 +64,38 @@ const withNativeTimeout = (p, ms) => Promise.race([
   new Promise((_, rej) => setTimeout(() => rej(new Error('超时无响应')), ms)),
 ])
 
-/** 初始化通知渠道（V3）：
- *  策略转变：不再以 JS 桥的 createChannel 为主路径。
- *  K60 实测：部分 ROM（MIUI/HyperOS）上经桥 createChannel 会永久挂起——第一个调用
- *  卡住会占死桥线程，后续所有插件调用（含降级渠道、schedule）全部挂死。
- *  新主路径：App 启动时由原生 Java（NotificationChannelsHelper）直建渠道，
- *  这里只做 listChannels 查询验证；渠道缺失才经桥补建一次「无铃声兼容渠道」；
- *  全部失败则置 null —— 调度时不带 channelId，由插件内置 default 渠道兜底（永不丢通知）。 */
+/** 初始化通知渠道检查（V4）：
+ *  渠道由 App 启动时原生直建（NotificationChannelsHelper，不经 JS 桥），这里经「自建桥」
+ *  查询确认生效渠道并收集诊断状态。K60 实测 LocalNotifications 插件桥的 listChannels
+ *  也会挂起，故改走自有 AppBridge。查询失败不影响调度（原生侧自动选渠道兜底）。 */
 export function initNativeNotifications() {
   if (!isCapacitor()) return Promise.resolve(false)
   if (_initPromise) return _initPromise
   _initPromise = (async () => {
     try {
-      const LN = await loadLocalNotifications()
-      if (!LN) {
-        console.warn('[notify] 无法加载 LocalNotifications 模块 — capacitor.plugins.json 可能缺失，请执行 npx cap sync android')
-        return false
+      const res = await withNativeTimeout(AppBridge.listNotificationChannels(), 6000)
+      const ids = ((res && res.channels) || []).filter(Boolean)
+      _channelState = {
+        hasRingtone: !!res.hasRingtone,
+        hasFallback: !!res.hasFallback,
+        exactAlarm: res.exactAlarm !== false,
+        notificationsEnabled: res.notificationsEnabled !== false,
       }
-      // ① 查询系统已有渠道（原生启动时已直建，正常情况这里直接命中）
-      try {
-        const res = await withNativeTimeout(LN.listChannels(), 5000)
-        const ids = ((res && res.channels) || []).map(c => c && c.id).filter(Boolean)
-        if (ids.includes('growth_v3')) {
-          _activeChannel = 'growth_v3'
-          return true
-        }
-        if (ids.includes('growth_fb')) {
-          _activeChannel = 'growth_fb'
-          return true
-        }
-        console.warn('[notify] 系统渠道中无 growth 渠道，已有:', ids.length ? ids.join(', ') : '(空)')
-      } catch (e) {
-        console.warn('[notify] listChannels 查询失败:', e && e.message)
+      if (ids.includes('growth_v3')) {
+        _activeChannel = 'growth_v3'
+        return true
       }
-      // ② 渠道缺失（如旧版本 APK 未做原生直建）→ 经桥补建一次「无铃声兼容渠道」（无自定义 URI，绝大多数 ROM 秒回）
-      try {
-        await withNativeTimeout(LN.createChannel({
-          id: 'growth_fb',
-          name: '成长提醒',
-          description: '成长提醒（兼容模式）',
-          importance: 5,
-          visibility: 1,
-          vibration: true,
-        }), 5000)
+      if (ids.includes('growth_fb')) {
         _activeChannel = 'growth_fb'
         return true
-      } catch (e2) {
-        console.warn('[notify] 兼容渠道补建失败:', e2 && e2.message)
       }
-      // ③ 彻底失败 → 不带渠道调度，插件会用内置 default 渠道（其 load() 时已自动创建）
+      console.warn('[notify] 系统渠道中无 growth 渠道，已有:', ids.length ? ids.join(', ') : '(空)')
       _activeChannel = null
       return false
     } catch (e) {
-      console.warn('[notify] initNativeNotifications 失败:', e && e.message)
+      console.warn('[notify] 渠道查询失败（自建桥）:', e && e.message)
+      _channelState = null
+      _activeChannel = null
       return false
     } finally {
       _initDone = true
@@ -158,18 +147,15 @@ export async function scheduleNativeNotification(opts) {
       const res = await LocalNotifications.requestPermissions()
       if (res.display !== 'granted') return false
     }
-    if (!_initDone) await initNativeNotifications()
     const at = Math.max(Date.now() + 2000, Number(opts.at) || Date.now() + 2000)
-    const item = {
+    // 自建桥（AlarmManager 原生调度）：K60 上 LocalNotifications 插件桥的 schedule 会挂死，
+    // 此路径已在该机型验证可用（保活/横竖屏同桥）。渠道由原生侧自动选择（铃声→兼容→默认）。
+    await AppBridge.scheduleNotification({
       id: numId(opts.id),
       title: opts.title || '成长提醒',
       body: opts.body || '',
-      schedule: { at: new Date(at), allowWhileIdle: true, exact: true },
-    }
-    // 渠道仅在「确认存在」时携带；为 null 时绝不携带（指向不存在的渠道会被系统静默丢弃），
-    // 交给插件内置 default 渠道兜底（插件加载时自动创建，系统默认提示音）
-    if (_activeChannel) item.channelId = _activeChannel
-    await LocalNotifications.schedule({ notifications: [item] })
+      at,
+    })
     return true
   } catch (e) {
     console.warn('[notify] scheduleNativeNotification 失败:', e?.message)
@@ -181,13 +167,27 @@ export async function scheduleNativeNotification(opts) {
 export async function cancelNativeNotification(id) {
   if (!isCapacitor()) return
   try {
-    const LocalNotifications = await loadLocalNotifications()
-    if (!LocalNotifications) return
-    await LocalNotifications.cancel({ notifications: [{ id: numId(id) }] })
+    await AppBridge.cancelNotification({ id: numId(id) })
   } catch (e) { /* ignore */ }
 }
 
 let _counter = 0
+
+/** 立即弹一条系统通知（自建桥直弹，不走闹钟）——用于自检验证「通知渲染/铃声」路径。 */
+export async function notifyNativeNow(title, body) {
+  if (!isCapacitor()) return false
+  try {
+    await AppBridge.notifyNow({
+      id: numId('now-' + Date.now() + '-' + (++_counter)),
+      title: title || '成长提醒',
+      body: body || '',
+    })
+    return true
+  } catch (e) {
+    console.warn('[notify] notifyNativeNow 失败:', e?.message)
+    return false
+  }
+}
 /**
  * 发送系统通知。
  * - 原生：调度 1 秒后的系统通知（锁屏/后台/被杀后已调度的也能弹）。
@@ -248,8 +248,9 @@ export async function notifyNow(title, body) {
 }
 
 /**
- * 提醒链路自检 V2：5 个步骤逐步骤计时诊断。
- * 任何一步超时/失败都会在结果中标出「卡在哪一步」，便于精确定位原生层问题。
+ * 提醒链路自检 V3：逐步骤计时诊断（自建桥版）。
+ * 4a（立即通知）与 4b（定时通知）分离 —— 一张截图即可定位「通知渲染」与「闹钟定时」
+ * 哪一层被 ROM 拦截；渠道/查询失败均不中断，原生侧有多级兜底。
  */
 export async function reminderSelfTest() {
   const lines = []
@@ -298,33 +299,46 @@ export async function reminderSelfTest() {
     return lines
   }
 
-  // 步骤3：检查通知渠道（原生启动时已直建，此处查询验证；失败不中断——调度有默认渠道兜底）
+  // 步骤3：检查通知渠道（经自建桥查询；原生启动时已直建。失败不中断——原生调度自动选渠道）
   try {
-    await step('3. 检查通知渠道', () => initNativeNotifications(), 14000, '桥查询挂起（将自动改用系统默认渠道）')
+    await step('3. 检查通知渠道（自建桥）', () => initNativeNotifications(), 9000, '自建桥渠道查询挂起（调度仍有原生兜底，继续验证）')
+    const st = _channelState || {}
     if (getActiveChannel()) {
-      lines.push(`   ✓ 生效渠道：${getActiveChannel()}${getActiveChannel() === 'growth_fb' ? '（系统默认提示音）' : '（自定义铃声）'}`)
+      lines.push(`   ✓ 生效渠道：${getActiveChannel()}（${getActiveChannel() === 'growth_v3' ? '自定义铃声' : '系统默认提示音'}）`)
     } else {
-      lines.push('   ⚠ 自定义渠道不可用 → 已改用系统默认渠道调度（通知仍会弹出，铃声取决于系统设置）')
+      lines.push('   ⚠ 未找到 growth 渠道 → 调度自动使用系统默认渠道')
+    }
+    if (st.exactAlarm === false) {
+      lines.push('   ⚠ 精确闹钟权限未开 → 提醒可能延迟（设置→应用→成长小美→闹钟和提醒）')
     }
   } catch (e) {
-    lines.push('   ⚠ 渠道查询挂起/失败 → 已改用系统默认渠道调度（通知仍会弹出）')
+    lines.push('   ⚠ 渠道查询挂起/失败 → 调度仍由原生自动选渠道（继续验证）')
   }
 
   // 提示系统级权限（无法用代码检测，需人工确认）
   lines.push('⚠ 请人工确认（设置→应用→成长小美）：「通知」允许、「闹钟和提醒」允许、电池优化不限制')
 
-  // 步骤4：真实调度一条 3 秒后的测试通知
+  // 步骤4a：立即弹测试通知（验证「通知渲染/铃声/震动」路径，不走闹钟）
   try {
-    await step('4. 调度测试通知（3 秒后触发）', () => scheduleNativeNotification({
-      id: 'selftest-' + Date.now(),
-      title: '🔔 提醒自检',
-      body: '看到此通知 = 提醒链路正常（请留意是否有铃声）',
-      at: Date.now() + 3000,
-    }), 8000)
-    lines.push('   → 3 秒后请注意：是否弹出横幅？是否有铃声？是否震动？')
-    lines.push('5. 若四步全绿但通知没弹出 → 把手机品牌和安卓版本告诉我（疑似 ROM 拦截）。')
+    await step('4a. 立即测试通知', () => notifyNativeNow('🔔 提醒自检 · 立即', '看到此条 = 通知路径正常（请留意铃声/震动）'), 6000)
+    lines.push('   ✓ 已发出 → 现在应立即弹出一条通知')
   } catch (e) {
-    lines.push('   ↳ 调度环节卡住/失败 = 原生桥异常，请截图回复我')
+    lines.push('   ✗ 立即通知也挂起 = 通知渲染被 ROM 拦截，请截图回复我')
   }
+
+  // 步骤4b：调度一条 3 秒后的闹钟通知（验证 AlarmManager 定时路径）
+  try {
+    await step('4b. 3 秒后闹钟通知', () => scheduleNativeNotification({
+      id: 'selftest-' + Date.now(),
+      title: '🔔 提醒自检 · 定时',
+      body: '看到此条 = 定时提醒链路正常（锁屏/杀进程也能到）',
+      at: Date.now() + 3000,
+    }), 6000)
+    lines.push('   ✓ 已调度 → 3 秒后应再弹一条定时通知')
+  } catch (e) {
+    lines.push('   ↳ 调度环节卡住/失败，请截图回复我')
+  }
+
+  lines.push('5. 结果解读：4a、4b 都弹出 = 提醒链路修复完成；只 4a 弹 → 检查「闹钟和提醒」权限后重试；都没弹 → 通知被 ROM 拦截（截图回复我）。')
   return lines
 }

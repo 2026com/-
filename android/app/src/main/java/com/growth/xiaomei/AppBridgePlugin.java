@@ -7,6 +7,7 @@ import android.content.pm.ActivityInfo;
 import android.net.Uri;
 import android.os.PowerManager;
 import android.provider.Settings;
+import com.getcapacitor.JSArray;
 import com.getcapacitor.JSObject;
 import com.getcapacitor.Plugin;
 import com.getcapacitor.PluginCall;
@@ -84,5 +85,96 @@ public class AppBridgePlugin extends Plugin {
             ret.put("status", "unavailable");
         }
         call.resolve(ret);
+    }
+
+    // ==================== 通知调度（原生自实现，绕开 LocalNotifications 插件桥） ====================
+    // 背景（K60 实测）：该 ROM 上 LocalNotifications 插件桥的通知/闹钟类调用全部挂起，
+    // 而本插件桥（保活/横竖屏）正常，故通知链路改走自有代码。
+
+    /** 调度定时通知 {id:number, title:string, body:string, at:number(毫秒时间戳)} */
+    @PluginMethod
+    public void scheduleNotification(PluginCall call) {
+        Integer id = call.getInt("id");
+        Double at = call.getDouble("at");
+        if (id == null || id <= 0 || at == null) {
+            call.reject("id 和 at 必填");
+            return;
+        }
+        try {
+            NotificationScheduler.schedule(
+                    getContext(),
+                    id,
+                    call.getString("title", "成长提醒"),
+                    call.getString("body", ""),
+                    at.longValue());
+            call.resolve();
+        } catch (Exception e) {
+            call.reject("调度失败: " + e.getMessage());
+        }
+    }
+
+    /** 立即弹一条系统通知 {id:number, title, body}（不走闹钟，用于自检验证通知路径） */
+    @PluginMethod
+    public void notifyNow(PluginCall call) {
+        Integer id = call.getInt("id");
+        if (id == null || id <= 0) { call.reject("id 必填"); return; }
+        try {
+            NotificationScheduler.showNotification(
+                    getContext(),
+                    id,
+                    call.getString("title", "成长提醒"),
+                    call.getString("body", ""));
+            call.resolve();
+        } catch (Exception e) {
+            call.reject("通知失败: " + e.getMessage());
+        }
+    }
+
+    /** 取消已调度通知 {id:number} */
+    @PluginMethod
+    public void cancelNotification(PluginCall call) {
+        Integer id = call.getInt("id");
+        if (id == null || id <= 0) { call.reject("id 必填"); return; }
+        try {
+            NotificationScheduler.cancel(getContext(), id);
+            call.resolve();
+        } catch (Exception e) {
+            call.reject("取消失败: " + e.getMessage());
+        }
+    }
+
+    /** 诊断：列出系统通知渠道 + 关键权限状态 → {channels[], hasRingtone, hasFallback, exactAlarm, notificationsEnabled} */
+    @PluginMethod
+    public void listNotificationChannels(PluginCall call) {
+        try {
+            android.app.NotificationManager nm =
+                    (android.app.NotificationManager) getContext().getSystemService(Context.NOTIFICATION_SERVICE);
+            JSArray channels = new JSArray();
+            boolean hasRingtone = false, hasFallback = false;
+            if (nm != null && android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+                for (android.app.NotificationChannel c : nm.getNotificationChannels()) {
+                    if (c == null) continue;
+                    channels.put(c.getId());
+                    if (NotificationChannelsHelper.CH_RINGTONE.equals(c.getId())) hasRingtone = true;
+                    if (NotificationChannelsHelper.CH_FALLBACK.equals(c.getId())) hasFallback = true;
+                }
+            }
+            boolean exact = true;
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S) {
+                android.app.AlarmManager am =
+                        (android.app.AlarmManager) getContext().getSystemService(Context.ALARM_SERVICE);
+                exact = am == null || am.canScheduleExactAlarms();
+            }
+            boolean enabled = androidx.core.app.NotificationManagerCompat.from(getContext()).areNotificationsEnabled();
+            JSObject ret = new JSObject();
+            ret.put("channels", channels);
+            ret.put("hasRingtone", hasRingtone);
+            ret.put("hasFallback", hasFallback);
+            ret.put("exactAlarm", exact);
+            ret.put("notificationsEnabled", enabled);
+            call.resolve(ret);
+        } catch (Exception e) {
+            call.reject("查询失败: " + e.getMessage());
+        }
     }
 }
