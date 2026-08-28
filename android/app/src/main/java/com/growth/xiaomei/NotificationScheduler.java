@@ -95,6 +95,18 @@ public final class NotificationScheduler {
         } catch (Throwable e) { /* 通知失败绝不崩溃 */ }
     }
 
+    /** 查询通知是否真实在系统通知栏中（自检/试响的真实性验证）。 */
+    public static boolean isDelivered(Context ctx, int id) {
+        try {
+            NotificationManager nm = (NotificationManager) ctx.getSystemService(Context.NOTIFICATION_SERVICE);
+            if (nm == null || Build.VERSION.SDK_INT < Build.VERSION_CODES.M) return false;
+            for (android.service.notification.StatusBarNotification n : nm.getActiveNotifications()) {
+                if (n != null && n.getId() == id) return true;
+            }
+        } catch (Throwable t) { /* ignore */ }
+        return false;
+    }
+
     static Notification buildNotification(Context ctx, NotificationManager nm, int id, String title, String body, String channel) {
         String cid = resolveChannel(nm, channel);
         Notification.Builder b;

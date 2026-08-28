@@ -115,7 +115,8 @@ public class AppBridgePlugin extends Plugin {
         }
     }
 
-    /** 立即弹一条系统通知 {id:number, title, body, channel?}（不走闹钟，用于试听/自检） */
+    /** 立即弹一条系统通知 {id:number, title, body, channel?}（不走闹钟，用于试听/自检）
+     *  返回 {delivered:boolean}：通知是否真实进入系统通知栏（是否真弹出以此为准） */
     @PluginMethod
     public void notifyNow(PluginCall call) {
         Integer id = call.getInt("id");
@@ -127,7 +128,9 @@ public class AppBridgePlugin extends Plugin {
                     call.getString("title", "成长提醒"),
                     call.getString("body", ""),
                     call.getString("channel", null));
-            call.resolve();
+            JSObject ret = new JSObject();
+            ret.put("delivered", NotificationScheduler.isDelivered(getContext(), id));
+            call.resolve(ret);
         } catch (Exception e) {
             call.reject("通知失败: " + e.getMessage());
         }
@@ -146,18 +149,25 @@ public class AppBridgePlugin extends Plugin {
         }
     }
 
-    /** 诊断：列出系统通知渠道 + 关键权限状态 → {channels[], hasRingtone, hasFallback, exactAlarm, notificationsEnabled} */
+    /** 诊断：列出系统通知渠道 + 关键权限状态 → {channels[], detail[], hasRingtone, hasFallback, exactAlarm, notificationsEnabled} */
     @PluginMethod
     public void listNotificationChannels(PluginCall call) {
         try {
             android.app.NotificationManager nm =
                     (android.app.NotificationManager) getContext().getSystemService(Context.NOTIFICATION_SERVICE);
             JSArray channels = new JSArray();
+            JSArray detail = new JSArray();
             boolean hasRingtone = false, hasFallback = false;
             if (nm != null && android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
                 for (android.app.NotificationChannel c : nm.getNotificationChannels()) {
                     if (c == null) continue;
                     channels.put(c.getId());
+                    JSObject o = new JSObject();
+                    o.put("id", c.getId());
+                    Uri s = c.getSound();
+                    o.put("sound", s == null ? "" : s.toString());
+                    o.put("importance", c.getImportance());
+                    detail.put(o);
                     if (NotificationChannelsHelper.RING_ALARM.equals(c.getId())) hasRingtone = true;
                     if (NotificationChannelsHelper.RING_DEFAULT.equals(c.getId())) hasFallback = true;
                 }
@@ -171,6 +181,7 @@ public class AppBridgePlugin extends Plugin {
             boolean enabled = androidx.core.app.NotificationManagerCompat.from(getContext()).areNotificationsEnabled();
             JSObject ret = new JSObject();
             ret.put("channels", channels);
+            ret.put("detail", detail);
             ret.put("hasRingtone", hasRingtone);
             ret.put("hasFallback", hasFallback);
             ret.put("exactAlarm", exact);

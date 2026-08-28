@@ -10,6 +10,7 @@ import { notifyNativeNow } from '../../utils/notify.js'
 export default function ReminderSoundPanel({ onClose }) {
   const [selected, setSelected] = useState(getReminderSound())
   const [busy, setBusy] = useState(false)
+  const [msg, setMsg] = useState('')
   const audioRef = useRef(null)
 
   // 网页试听（快速预览音色；系统默认无内置文件，提示去真机试响）
@@ -30,13 +31,16 @@ export default function ReminderSoundPanel({ onClose }) {
 
   const saveAndRing = async () => {
     setBusy(true)
+    setMsg('')
     stopPreview()
     try {
       setReminderSound(selected)
       const ok = await notifyNativeNow('🔔 铃声已更新', '这条通知用的就是新铃声（打卡/闹钟提醒同款）', selected)
       if (ok) {
-        // 试响成功后 1s 再关闭，让用户确认听到了
-        setTimeout(() => onClose(), 1000)
+        setMsg('✅ 已保存，试响通知已发出（留意铃声）')
+        setTimeout(() => onClose(), 1200)
+      } else {
+        setMsg('⚠ 已保存，但试响通知未进入系统通知栏（可能被系统拦截），请到「🔔 自检」截图反馈')
       }
     } finally {
       setBusy(false)
@@ -100,6 +104,11 @@ export default function ReminderSoundPanel({ onClose }) {
         <div className="text-[11px] text-slate-400 mt-2 leading-relaxed">
           保存后立即生效，打卡 / 闹钟 / 番茄钟提醒都会使用新铃声。「试响」比「试听」更接近真实效果（走系统通知铃声）。
         </div>
+        {msg && (
+          <div className={`text-xs mt-2 p-2 rounded-lg leading-relaxed ${msg.startsWith('✅') ? 'bg-emerald-50 text-emerald-700' : 'bg-amber-50 text-amber-700'}`}>
+            {msg}
+          </div>
+        )}
       </div>
     </div>
   )

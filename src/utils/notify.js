@@ -81,6 +81,7 @@ export function initNativeNotifications() {
         hasFallback: !!res.hasFallback,
         exactAlarm: res.exactAlarm !== false,
         notificationsEnabled: res.notificationsEnabled !== false,
+        detail: (res && res.detail) || [],
       }
       if (res.hasRingtone) {
         _activeChannel = 'growth_ring_alarm'
@@ -174,17 +175,18 @@ export async function cancelNativeNotification(id) {
 
 let _counter = 0
 
-/** 立即弹一条系统通知（自建桥直弹，不走闹钟）——用于铃声试响 / 自检。 */
+/** 立即弹一条系统通知（自建桥直弹，不走闹钟）——用于铃声试响 / 自检。
+ *  返回 delivered：通知是否真实进入系统通知栏（false = 被系统拦截，即使调用成功）。 */
 export async function notifyNativeNow(title, body, soundKey) {
   if (!isCapacitor()) return false
   try {
-    await AppBridge.notifyNow({
+    const res = await AppBridge.notifyNow({
       id: numId('now-' + Date.now() + '-' + (++_counter)),
       title: title || '成长提醒',
       body: body || '',
       channel: channelOfSound(soundKey || getReminderSound()),
     })
-    return true
+    return !(res && res.delivered === false)
   } catch (e) {
     console.warn('[notify] notifyNativeNow 失败:', e?.message)
     return false
@@ -306,7 +308,13 @@ export async function reminderSelfTest() {
     await step('3. 检查通知渠道（自建桥）', () => initNativeNotifications(), 9000, '自建桥渠道查询挂起（调度仍有原生兜底，继续验证）')
     const st = _channelState || {}
     if (getActiveChannel()) {
+      const ring = (st.detail || []).find(c => c && c.id === 'growth_ring_alarm')
+      const s = ring && ring.sound ? String(ring.sound) : ''
+      const kind = s.startsWith('content://') ? 'content://（ROM 兼容铃声）'
+        : s.startsWith('android.resource://') ? 'resource://（旧式铃声，该 ROM 可能无声）'
+        : s ? '系统铃声' : '无声'
       lines.push(`   ✓ 铃声渠道就绪（${st.hasRingtone ? '4 款铃声可用' : '系统默认音'}，App 内「🔊 铃声」可切换）`)
+      if (ring) lines.push(`      清脆铃声渠道 URI：${kind}`)
     } else {
       lines.push('   ⚠ 未找到 growth 渠道 → 调度自动使用系统默认渠道')
     }
@@ -322,8 +330,10 @@ export async function reminderSelfTest() {
 
   // 步骤4a：立即弹测试通知（验证「通知渲染/铃声/震动」路径，不走闹钟）
   try {
-    await step('4a. 立即测试通知', () => notifyNativeNow('🔔 提醒自检 · 立即', '看到此条 = 通知路径正常（请留意铃声/震动）'), 6000)
-    lines.push('   ✓ 已发出 → 现在应立即弹出一条通知')
+    const delivered = await step('4a. 立即测试通知', () => notifyNativeNow('🔔 提醒自检 · 立即', '看到此条 = 通知路径正常（请留意铃声/震动）'), 6000)
+    lines.push(delivered
+      ? '   ✓ 已确认进入系统通知栏 → 现在应已弹出（请留意铃声/震动）'
+      : '   ⚠ 调用成功但通知未进入系统通知栏 = 系统拦截了本 App 的通知展示，请截图回复我')
   } catch (e) {
     lines.push('   ✗ 立即通知也挂起 = 通知渲染被 ROM 拦截，请截图回复我')
   }

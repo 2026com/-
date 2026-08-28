@@ -2,4 +2,7 @@
 <paths xmlns:android="http://schemas.android.com/apk/res/android">
     <external-path name="my_images" path="." />
     <cache-path name="my_cache_images" path="." />
+    <!-- 提醒铃声（res/raw 复制到外部应用目录，供渠道铃声 content:// URI 使用；
+         部分 MIUI/HyperOS ROM 对 android.resource:// 铃声 URI 静默无声，content:// 全 ROM 可靠） -->
+    <external-files-path name="ln_sounds" path="ln_sounds/" />
 </paths>
