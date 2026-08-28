@@ -228,8 +228,6 @@ export async function reminderSelfTest() {
     }
   }
 
-  let LocalNotifications = null
-
   // 步骤1：通知插件就绪（静态打包，无运行时拉取，恒可用）
   try {
     await step('1. 通知插件就绪（静态打包）', () => Promise.resolve(!!LocalNotifications), 2000)
