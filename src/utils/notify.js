@@ -39,13 +39,13 @@ function numId(str) {
   return (h % 2147483646) + 1
 }
 
-let _channelReady = false
-let _activeChannel = null   // 实际创建成功的渠道 id（selftest/调度统一使用）
+let _initDone = false       // 渠道初始化流程已执行完毕（无论结果如何）
+let _activeChannel = null   // 经 listChannels 确认存在的渠道 id；null = 无可用渠道（调度时由插件内置 default 渠道兜底）
 let _initPromise = null
 
-/** 当前生效的渠道 id */
+/** 当前生效的渠道 id（null 表示调度时不带 channelId，用插件内置 default 渠道） */
 export function getActiveChannel() {
-  return _activeChannel || 'growth_v3'
+  return _activeChannel
 }
 
 /** 原生调用超时保护（部分 ROM 对渠道自定义铃声 URI 兼容性差，会卡住回调） */
@@ -54,10 +54,13 @@ const withNativeTimeout = (p, ms) => Promise.race([
   new Promise((_, rej) => setTimeout(() => rej(new Error('超时无响应')), ms)),
 ])
 
-/** 初始化（创建 Android 8+ 通知渠道，幂等）：
- *  策略：优先「带铃声渠道」（res/raw/alarm.wav）；若 ROM 对自定义铃声兼容性差
- *  导致创建卡住/失败 → 自动降级为「兼容渠道」（不设自定义铃声 = 系统默认提示音，
- *  全 ROM 最稳），保证渠道一定存在、通知不因渠道缺失而被系统丢弃。 */
+/** 初始化通知渠道（V3）：
+ *  策略转变：不再以 JS 桥的 createChannel 为主路径。
+ *  K60 实测：部分 ROM（MIUI/HyperOS）上经桥 createChannel 会永久挂起——第一个调用
+ *  卡住会占死桥线程，后续所有插件调用（含降级渠道、schedule）全部挂死。
+ *  新主路径：App 启动时由原生 Java（NotificationChannelsHelper）直建渠道，
+ *  这里只做 listChannels 查询验证；渠道缺失才经桥补建一次「无铃声兼容渠道」；
+ *  全部失败则置 null —— 调度时不带 channelId，由插件内置 default 渠道兜底（永不丢通知）。 */
 export function initNativeNotifications() {
   if (!isCapacitor()) return Promise.resolve(false)
   if (_initPromise) return _initPromise
@@ -68,24 +71,23 @@ export function initNativeNotifications() {
         console.warn('[notify] 无法加载 LocalNotifications 模块 — capacitor.plugins.json 可能缺失，请执行 npx cap sync android')
         return false
       }
-      // 渠道 A：带自定义铃声（双频提示音）
+      // ① 查询系统已有渠道（原生启动时已直建，正常情况这里直接命中）
       try {
-        await withNativeTimeout(LN.createChannel({
-          id: 'growth_v3',
-          name: '成长提醒',
-          description: '节点闹钟、习惯打卡与番茄钟提醒（系统级铃声）',
-          importance: 5, // IMPORTANCE_HIGH：横幅 + 声音 + 锁屏显示
-          visibility: 1, // VISIBILITY_PUBLIC：锁屏也显示
-          sound: 'alarm.wav',
-          vibration: true,
-        }), 4000)
-        _activeChannel = 'growth_v3'
-        _channelReady = true
-        return true
+        const res = await withNativeTimeout(LN.listChannels(), 5000)
+        const ids = ((res && res.channels) || []).map(c => c && c.id).filter(Boolean)
+        if (ids.includes('growth_v3')) {
+          _activeChannel = 'growth_v3'
+          return true
+        }
+        if (ids.includes('growth_fb')) {
+          _activeChannel = 'growth_fb'
+          return true
+        }
+        console.warn('[notify] 系统渠道中无 growth 渠道，已有:', ids.length ? ids.join(', ') : '(空)')
       } catch (e) {
-        console.warn('[notify] 带铃声渠道创建超时/失败，自动降级为兼容渠道:', e && e.message)
+        console.warn('[notify] listChannels 查询失败:', e && e.message)
       }
-      // 渠道 B：兼容渠道（不设自定义铃声 → 使用系统默认通知音）
+      // ② 渠道缺失（如旧版本 APK 未做原生直建）→ 经桥补建一次「无铃声兼容渠道」（无自定义 URI，绝大多数 ROM 秒回）
       try {
         await withNativeTimeout(LN.createChannel({
           id: 'growth_fb',
@@ -94,17 +96,20 @@ export function initNativeNotifications() {
           importance: 5,
           visibility: 1,
           vibration: true,
-        }), 4000)
+        }), 5000)
         _activeChannel = 'growth_fb'
-        _channelReady = true
         return true
       } catch (e2) {
-        console.warn('[notify] 兼容渠道创建也失败:', e2 && e2.message)
-        return false
+        console.warn('[notify] 兼容渠道补建失败:', e2 && e2.message)
       }
+      // ③ 彻底失败 → 不带渠道调度，插件会用内置 default 渠道（其 load() 时已自动创建）
+      _activeChannel = null
+      return false
     } catch (e) {
       console.warn('[notify] initNativeNotifications 失败:', e && e.message)
       return false
+    } finally {
+      _initDone = true
     }
   })()
   return _initPromise
@@ -153,19 +158,18 @@ export async function scheduleNativeNotification(opts) {
       const res = await LocalNotifications.requestPermissions()
       if (res.display !== 'granted') return false
     }
-    if (!_channelReady) await initNativeNotifications()
+    if (!_initDone) await initNativeNotifications()
     const at = Math.max(Date.now() + 2000, Number(opts.at) || Date.now() + 2000)
-    await LocalNotifications.schedule({
-      notifications: [
-        {
-          id: numId(opts.id),
-          title: opts.title || '成长提醒',
-          body: opts.body || '',
-          channelId: getActiveChannel(),
-          schedule: { at: new Date(at), allowWhileIdle: true, exact: true },
-        },
-      ],
-    })
+    const item = {
+      id: numId(opts.id),
+      title: opts.title || '成长提醒',
+      body: opts.body || '',
+      schedule: { at: new Date(at), allowWhileIdle: true, exact: true },
+    }
+    // 渠道仅在「确认存在」时携带；为 null 时绝不携带（指向不存在的渠道会被系统静默丢弃），
+    // 交给插件内置 default 渠道兜底（插件加载时自动创建，系统默认提示音）
+    if (_activeChannel) item.channelId = _activeChannel
+    await LocalNotifications.schedule({ notifications: [item] })
     return true
   } catch (e) {
     console.warn('[notify] scheduleNativeNotification 失败:', e?.message)
@@ -252,8 +256,8 @@ export async function reminderSelfTest() {
   if (!isCapacitor()) {
     return ['当前为浏览器（PWA）环境：提醒依赖页面保持打开，无法像 APK 一样离线提醒。']
   }
-  // 单步计时包装：超时/失败都带步骤名抛出
-  const step = async (name, fn, ms) => {
+  // 单步计时包装：超时/失败都带步骤名抛出；hint 允许非致命步骤自定义提示
+  const step = async (name, fn, ms, hint = '病根在这一步，请截图回复我') => {
     try {
       const r = await Promise.race([
         fn(),
@@ -263,7 +267,7 @@ export async function reminderSelfTest() {
       return r
     } catch (e) {
       const msg = e && e.message ? e.message : String(e)
-      lines.push(`✗ ${name}：${msg} ← 病根在这一步，请截图回复我`)
+      lines.push(`✗ ${name}：${msg} ← ${hint}`)
       throw Object.assign(new Error(msg), { failedStep: name })
     }
   }
@@ -294,13 +298,16 @@ export async function reminderSelfTest() {
     return lines
   }
 
-  // 步骤3：初始化通知渠道（铃声版超时自动降级为兼容渠道，确保渠道一定存在）
+  // 步骤3：检查通知渠道（原生启动时已直建，此处查询验证；失败不中断——调度有默认渠道兜底）
   try {
-    await step('3. 初始化通知渠道', () => initNativeNotifications(), 12000)
-    lines.push(`   ✓ 生效渠道：${getActiveChannel()}${getActiveChannel() === 'growth_fb' ? '（系统默认提示音）' : '（自定义铃声）'}`)
+    await step('3. 检查通知渠道', () => initNativeNotifications(), 14000, '桥查询挂起（将自动改用系统默认渠道）')
+    if (getActiveChannel()) {
+      lines.push(`   ✓ 生效渠道：${getActiveChannel()}${getActiveChannel() === 'growth_fb' ? '（系统默认提示音）' : '（自定义铃声）'}`)
+    } else {
+      lines.push('   ⚠ 自定义渠道不可用 → 已改用系统默认渠道调度（通知仍会弹出，铃声取决于系统设置）')
+    }
   } catch (e) {
-    lines.push('   ↳ 渠道初始化失败（已尝试降级），请截图回复我')
-    return lines
+    lines.push('   ⚠ 渠道查询挂起/失败 → 已改用系统默认渠道调度（通知仍会弹出）')
   }
 
   // 提示系统级权限（无法用代码检测，需人工确认）
