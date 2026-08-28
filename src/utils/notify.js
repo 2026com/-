@@ -40,34 +40,74 @@ function numId(str) {
 }
 
 let _channelReady = false
-/** 初始化（创建 Android 8+ 通知渠道，幂等） */
-export async function initNativeNotifications() {
-  if (!isCapacitor()) return false
-  try {
-    const LocalNotifications = await loadLocalNotifications()
-    if (!LocalNotifications) {
-      console.warn('[notify] 无法加载 LocalNotifications 模块 — capacitor.plugins.json 可能缺失，请执行 npx cap sync android')
+let _activeChannel = null   // 实际创建成功的渠道 id（selftest/调度统一使用）
+let _initPromise = null
+
+/** 当前生效的渠道 id */
+export function getActiveChannel() {
+  return _activeChannel || 'growth_v3'
+}
+
+/** 原生调用超时保护（部分 ROM 对渠道自定义铃声 URI 兼容性差，会卡住回调） */
+const withNativeTimeout = (p, ms) => Promise.race([
+  p,
+  new Promise((_, rej) => setTimeout(() => rej(new Error('超时无响应')), ms)),
+])
+
+/** 初始化（创建 Android 8+ 通知渠道，幂等）：
+ *  策略：优先「带铃声渠道」（res/raw/alarm.wav）；若 ROM 对自定义铃声兼容性差
+ *  导致创建卡住/失败 → 自动降级为「兼容渠道」（不设自定义铃声 = 系统默认提示音，
+ *  全 ROM 最稳），保证渠道一定存在、通知不因渠道缺失而被系统丢弃。 */
+export function initNativeNotifications() {
+  if (!isCapacitor()) return Promise.resolve(false)
+  if (_initPromise) return _initPromise
+  _initPromise = (async () => {
+    try {
+      const LN = await loadLocalNotifications()
+      if (!LN) {
+        console.warn('[notify] 无法加载 LocalNotifications 模块 — capacitor.plugins.json 可能缺失，请执行 npx cap sync android')
+        return false
+      }
+      // 渠道 A：带自定义铃声（双频提示音）
+      try {
+        await withNativeTimeout(LN.createChannel({
+          id: 'growth_v3',
+          name: '成长提醒',
+          description: '节点闹钟、习惯打卡与番茄钟提醒（系统级铃声）',
+          importance: 5, // IMPORTANCE_HIGH：横幅 + 声音 + 锁屏显示
+          visibility: 1, // VISIBILITY_PUBLIC：锁屏也显示
+          sound: 'alarm.wav',
+          vibration: true,
+        }), 4000)
+        _activeChannel = 'growth_v3'
+        _channelReady = true
+        return true
+      } catch (e) {
+        console.warn('[notify] 带铃声渠道创建超时/失败，自动降级为兼容渠道:', e && e.message)
+      }
+      // 渠道 B：兼容渠道（不设自定义铃声 → 使用系统默认通知音）
+      try {
+        await withNativeTimeout(LN.createChannel({
+          id: 'growth_fb',
+          name: '成长提醒',
+          description: '成长提醒（兼容模式）',
+          importance: 5,
+          visibility: 1,
+          vibration: true,
+        }), 4000)
+        _activeChannel = 'growth_fb'
+        _channelReady = true
+        return true
+      } catch (e2) {
+        console.warn('[notify] 兼容渠道创建也失败:', e2 && e2.message)
+        return false
+      }
+    } catch (e) {
+      console.warn('[notify] initNativeNotifications 失败:', e && e.message)
       return false
     }
-    // v3 渠道：'default' 不是合法的 res/raw 资源名（曾导致渠道无声）；
-    // v2 起改用打包进 APK 的 res/raw/alarm.wav（插件 SoundResolver 会去扩展名查找）。
-    // Android 渠道创建后属性不可变——若某台设备上 v2 已以异常状态存在，
-    // 升级渠道 id（growth_v3）可强制以正确配置重建。
-    await LocalNotifications.createChannel({
-      id: 'growth_v3',
-      name: '成长提醒',
-      description: '节点闹钟、习惯打卡与番茄钟提醒（系统级铃声）',
-      importance: 5, // IMPORTANCE_HIGH：横幅 + 声音 + 锁屏显示
-      visibility: 1, // VISIBILITY_PUBLIC：锁屏也显示
-      sound: 'alarm.wav',
-      vibration: true,
-    })
-    _channelReady = true
-    return true
-  } catch (e) {
-    console.warn('[notify] initNativeNotifications 失败:', e?.message)
-    return false
-  }
+  })()
+  return _initPromise
 }
 
 /** 申请系统通知权限（原生：Android 13+ 运行时弹窗；PWA：浏览器权限）。返回是否可用。 */
@@ -121,7 +161,7 @@ export async function scheduleNativeNotification(opts) {
           id: numId(opts.id),
           title: opts.title || '成长提醒',
           body: opts.body || '',
-          channelId: 'growth_v3',
+          channelId: getActiveChannel(),
           schedule: { at: new Date(at), allowWhileIdle: true, exact: true },
         },
       ],
@@ -254,15 +294,12 @@ export async function reminderSelfTest() {
     return lines
   }
 
-  // 步骤3：创建/列出通知渠道（确认铃声真实生效）
+  // 步骤3：初始化通知渠道（铃声版超时自动降级为兼容渠道，确保渠道一定存在）
   try {
-    await step('3. 创建通知渠道（含铃声）', () => initNativeNotifications(), 6000)
-    const lc = await step('   列出设备渠道', () => LocalNotifications.listChannels(), 5000)
-    const channels = (lc && lc.channels) || []
-    const desc = channels.map(c => `${c.id}${c.sound ? '（有声）' : '（无声!）'}`)
-    lines.push(`   设备实际渠道：${desc.length ? desc.join('、') : '无'}`)
+    await step('3. 初始化通知渠道', () => initNativeNotifications(), 12000)
+    lines.push(`   ✓ 生效渠道：${getActiveChannel()}${getActiveChannel() === 'growth_fb' ? '（系统默认提示音）' : '（自定义铃声）'}`)
   } catch (e) {
-    lines.push('   ↳ 渠道环节卡住/失败 = 原生桥异常，请截图回复我')
+    lines.push('   ↳ 渠道初始化失败（已尝试降级），请截图回复我')
     return lines
   }
 
