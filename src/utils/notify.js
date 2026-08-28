@@ -206,59 +206,90 @@ export async function notifyNow(title, body) {
 }
 
 /**
- * 提醒链路自检：权限 → 渠道 → 调度一条 3 秒后的测试通知。
- * 返回逐条诊断文本（供 UI 以弹窗展示），并在设备上真实发出测试通知供用户验证铃声/横幅。
+ * 提醒链路自检 V2：5 个步骤逐步骤计时诊断。
+ * 任何一步超时/失败都会在结果中标出「卡在哪一步」，便于精确定位原生层问题。
  */
 export async function reminderSelfTest() {
   const lines = []
   if (!isCapacitor()) {
-    return ['当前为浏览器（PWA）环境：提醒依赖页面保持打开，', '无法像 APK 一样在应用关闭后离线提醒。']
+    return ['当前为浏览器（PWA）环境：提醒依赖页面保持打开，无法像 APK 一样离线提醒。']
   }
+  // 单步计时包装：超时/失败都带步骤名抛出
+  const step = async (name, fn, ms) => {
+    try {
+      const r = await Promise.race([
+        fn(),
+        new Promise((_, rej) => setTimeout(() => rej(new Error('超时无响应（原生调用挂起）')), ms)),
+      ])
+      lines.push(`✓ ${name}`)
+      return r
+    } catch (e) {
+      const msg = e && e.message ? e.message : String(e)
+      lines.push(`✗ ${name}：${msg} ← 病根在这一步，请截图回复我`)
+      throw Object.assign(new Error(msg), { failedStep: name })
+    }
+  }
+
   let LocalNotifications = null
-  try { LocalNotifications = await loadLocalNotifications() } catch (e) { /* ignore */ }
-  if (!LocalNotifications) {
-    lines.push('✗ 通知插件加载失败（请执行 npx cap sync android 后重装）')
+
+  // 步骤1：动态加载通知插件模块（若卡住 → WebView 动态加载被拦截/资源缺失）
+  try {
+    LocalNotifications = await step(
+      '1. 加载通知插件模块',
+      () => import('@capacitor/local-notifications').then(m => m.LocalNotifications),
+      6000
+    )
+    if (!LocalNotifications) throw new Error('模块为空')
+  } catch (e) {
+    lines.push('   ↳ 处理建议：手机设置 → 应用 → 成长小美 → 存储 → 清除缓存，重进后再自检一次')
     return lines
   }
-  // 1) 通知权限
+
+  // 步骤2：通知权限（Android 13+ 必须允许，否则系统通知全部静默丢弃）
   try {
-    const p = await LocalNotifications.checkPermissions()
-    lines.push('1. 通知权限: ' + p.display)
-    if (p.display !== 'granted') {
-      const r = await LocalNotifications.requestPermissions()
-      lines.push('   请求后: ' + r.display)
+    const p = await step('2. 查询通知权限', () => LocalNotifications.checkPermissions(), 5000)
+    if (p.display === 'granted') {
+      lines[lines.length - 1] = '✓ 2. 通知权限：已授予'
+    } else {
+      const r = await step('   申请通知权限', () => LocalNotifications.requestPermissions(), 5000)
       if (r.display !== 'granted') {
-        lines.push('✗ 权限被拒绝 → 这就是收不到提醒的直接原因。')
-        lines.push('   请到 系统设置 → 应用 → 成长小美 → 通知 手动允许。')
+        lines.push(`   ✗ 权限仍为 ${r.display} → 请到 系统设置 → 应用 → 成长小美 → 通知 手动允许`)
         return lines
       }
+      lines[lines.length - 1] = '✓ 2. 通知权限：本次申请已授予'
     }
   } catch (e) {
-    lines.push('1. 权限检查异常: ' + (e && e.message ? e.message : e))
+    lines.push('   ↳ 权限接口卡住 = 原生桥异常，请截图回复我')
+    return lines
   }
-  // 2) 渠道（Android 8+）：列出设备上的真实渠道与其声音状态
+
+  // 步骤3：创建/列出通知渠道（确认铃声真实生效）
   try {
-    await initNativeNotifications()
-    const lc = await LocalNotifications.listChannels()
+    await step('3. 创建通知渠道（含铃声）', () => initNativeNotifications(), 6000)
+    const lc = await step('   列出设备渠道', () => LocalNotifications.listChannels(), 5000)
     const channels = (lc && lc.channels) || []
     const desc = channels.map(c => `${c.id}${c.sound ? '（有声）' : '（无声!）'}`)
-    lines.push('2. 通知渠道: ' + (desc.length ? desc.join('、') : '无'))
-    const bad = channels.find(c => c.id === 'growth_v3' && !c.sound)
-    if (bad) lines.push('   ⚠ growth_v3 渠道无铃声（异常，请回复我）')
+    lines.push(`   设备实际渠道：${desc.length ? desc.join('、') : '无'}`)
   } catch (e) {
-    lines.push('2. 渠道检查异常: ' + (e && e.message ? e.message : e))
+    lines.push('   ↳ 渠道环节卡住/失败 = 原生桥异常，请截图回复我')
+    return lines
   }
-  // 3) 精确闹钟（Android 12+ 可由用户撤销；14+ 默认关闭）
-  lines.push('3. 请确认系统已允许「闹钟和提醒」权限：')
-  lines.push('   设置 → 应用 → 成长小美 → 闹钟和提醒 → 允许')
-  // 4) 真实发一条测试通知（3 秒后触发）
-  const ok = await scheduleNativeNotification({
-    id: 'selftest-' + Date.now(),
-    title: '🔔 提醒自检',
-    body: '看到此通知 = 提醒链路正常。若无声音，长按本通知进渠道设置开启声音。',
-    at: Date.now() + 3000,
-  })
-  lines.push('4. 测试通知: ' + (ok ? '已调度，3 秒后应弹出（注意听声音/看震动）' : '✗ 调度失败（把此界面截图回复我）'))
-  lines.push('5. 若测试通知正常、打卡提醒仍不响 → 回复我，我再查调度同步环节。')
+
+  // 提示系统级权限（无法用代码检测，需人工确认）
+  lines.push('⚠ 请人工确认（设置→应用→成长小美）：「通知」允许、「闹钟和提醒」允许、电池优化不限制')
+
+  // 步骤4：真实调度一条 3 秒后的测试通知
+  try {
+    await step('4. 调度测试通知（3 秒后触发）', () => scheduleNativeNotification({
+      id: 'selftest-' + Date.now(),
+      title: '🔔 提醒自检',
+      body: '看到此通知 = 提醒链路正常（请留意是否有铃声）',
+      at: Date.now() + 3000,
+    }), 8000)
+    lines.push('   → 3 秒后请注意：是否弹出横幅？是否有铃声？是否震动？')
+    lines.push('5. 若四步全绿但通知没弹出 → 把手机品牌和安卓版本告诉我（疑似 ROM 拦截）。')
+  } catch (e) {
+    lines.push('   ↳ 调度环节卡住/失败 = 原生桥异常，请截图回复我')
+  }
   return lines
 }

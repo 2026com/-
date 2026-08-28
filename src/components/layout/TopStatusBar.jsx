@@ -53,9 +53,9 @@ export default function TopStatusBar() {
     try {
       const withTimeout = (p, ms) => Promise.race([
         p,
-        new Promise((_, rej) => setTimeout(() => rej(new Error('自检超时：原生调用 15 秒无响应（请截图回复我）')), ms)),
+        new Promise((_, rej) => setTimeout(() => rej(new Error('自检总耗时过长（有步骤卡住，结果会标出卡点）')), ms)),
       ])
-      const lines = await withTimeout(reminderSelfTest(), 15000)
+      const lines = await withTimeout(reminderSelfTest(), 45000)
       setSelfTest({ lines })
     } catch (e) {
       setSelfTest({ error: String((e && e.message) || e) })
