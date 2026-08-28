@@ -5,7 +5,6 @@ import { dateUtil } from '../../utils/storage.js'
 import { useAppTheme, toggleTheme } from '../../services/theme.js'
 import { reminderSelfTest } from '../../utils/notify.js'
 import { isIgnoringBatteryOptimizations, requestIgnoreBatteryOptimization } from '../../services/device.js'
-import ReminderSoundPanel from './ReminderSoundPanel.jsx'
 
 /**
  * 顶部状态栏 V2（手机端适配）
@@ -49,8 +48,6 @@ export default function TopStatusBar() {
 
   // ===== 提醒自检（自包含浮层：点击立即反馈，不依赖 ModalRoot）=====
   const [selfTest, setSelfTest] = useState(null) // null | {loading:true} | {lines:[...]} | {error:'...'}
-  // ===== 提醒铃声设置浮层 =====
-  const [soundPanel, setSoundPanel] = useState(false)
   const runSelfTest = async () => {
     console.log('[selftest] clicked')
     setSelfTest({ loading: true })
@@ -147,13 +144,6 @@ export default function TopStatusBar() {
           {theme === 'dark' ? '☀️ 浅色' : '🌙 深色'}
         </button>
         <button
-          onClick={() => setSoundPanel(true)}
-          title="提醒铃声：App 内选择打卡/闹钟提醒的提示音"
-          className="px-3 py-1.5 text-xs rounded-md bg-white/10 hover:bg-white/20 touch-feedback transition-colors"
-        >
-          🔊 铃声
-        </button>
-        <button
           onClick={runSelfTest}
           title="一键诊断：通知权限 / 渠道 / 调度，并 3 秒后发出测试通知"
           className="px-3 py-1.5 text-xs rounded-md bg-white/10 hover:bg-white/20 touch-feedback transition-colors"
@@ -197,9 +187,6 @@ export default function TopStatusBar() {
             📊 {state.ui.dashboardOpen ? '收起仪表盘' : '打开数据仪表盘'}
           </button>
         )}
-
-        {/* 提醒铃声设置浮层 */}
-        {soundPanel && <ReminderSoundPanel onClose={() => setSoundPanel(false)} />}
 
         {/* 提醒自检浮层（自包含：点击立即显示，15s 超时保护，异常可视化） */}
         {selfTest && (

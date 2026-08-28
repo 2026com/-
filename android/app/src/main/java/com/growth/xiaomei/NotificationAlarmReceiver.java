@@ -16,9 +16,8 @@ public class NotificationAlarmReceiver extends BroadcastReceiver {
             if (id == -1) return;
             String title = intent.getStringExtra("title");
             String body = intent.getStringExtra("body");
-            String channel = intent.getStringExtra("channel");
             NotificationScheduler.removePending(context, id);
-            NotificationScheduler.showNotification(context, id, title, body, channel);
+            NotificationScheduler.showNotification(context, id, title, body);
         } catch (Exception e) { /* 触发失败绝不崩溃 */ }
     }
 }

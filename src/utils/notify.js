@@ -15,7 +15,6 @@
 
 import { LocalNotifications } from '@capacitor/local-notifications'
 import { registerPlugin } from '@capacitor/core'
-import { getReminderSound, channelOfSound } from '../services/reminderSound.js'
 
 /** 自建原生桥（AppBridge）：K60 实测 LocalNotifications 插件桥的通知/闹钟类调用
  *  在该 ROM 上全部挂起，而自建桥正常，故通知链路完全走自有原生代码。 */
@@ -75,23 +74,17 @@ export function initNativeNotifications() {
   _initPromise = (async () => {
     try {
       const res = await withNativeTimeout(AppBridge.listNotificationChannels(), 6000)
-      const ids = ((res && res.channels) || []).filter(Boolean)
       _channelState = {
-        hasRingtone: !!res.hasRingtone,
-        hasFallback: !!res.hasFallback,
+        hasNotify: !!res.hasNotify,
         exactAlarm: res.exactAlarm !== false,
         notificationsEnabled: res.notificationsEnabled !== false,
         detail: (res && res.detail) || [],
       }
-      if (res.hasRingtone) {
-        _activeChannel = 'growth_ring_alarm'
+      if (res.hasNotify) {
+        _activeChannel = 'growth_notify'
         return true
       }
-      if (res.hasFallback) {
-        _activeChannel = 'growth_ring_default'
-        return true
-      }
-      console.warn('[notify] 系统渠道中无 growth_ring 渠道，已有:', ids.length ? ids.join(', ') : '(空)')
+      console.warn('[notify] 系统渠道中无 growth_notify，已有:', ((res && res.channels) || []).join(', '))
       _activeChannel = null
       return false
     } catch (e) {
@@ -149,14 +142,12 @@ export async function scheduleNativeNotification(opts) {
       return false
     }
     const at = Math.max(Date.now() + 2000, Number(opts.at) || Date.now() + 2000)
-    // 自建桥（异步调度：立即返回，原生后台武装 AlarmManager + 守护服务到点兜底弹出）。
-    // 渠道 = 用户在 App 内所选铃声对应渠道（原生侧有回退链，渠道缺失自动降级）。
+    // 自建桥（异步调度：立即返回，原生后台武装用户级闹钟 + 守护服务到点兜底弹出）。
     await AppBridge.scheduleNotification({
       id: numId(opts.id),
       title: opts.title || '成长提醒',
       body: opts.body || '',
       at,
-      channel: channelOfSound(getReminderSound()),
     })
     return true
   } catch (e) {
@@ -175,16 +166,15 @@ export async function cancelNativeNotification(id) {
 
 let _counter = 0
 
-/** 立即弹一条系统通知（自建桥直弹，不走闹钟）——用于铃声试响 / 自检。
+/** 立即弹一条系统通知（自建桥直弹，不走闹钟）——用于自检。
  *  返回 delivered：通知是否真实进入系统通知栏（false = 被系统拦截，即使调用成功）。 */
-export async function notifyNativeNow(title, body, soundKey) {
+export async function notifyNativeNow(title, body) {
   if (!isCapacitor()) return false
   try {
     const res = await AppBridge.notifyNow({
       id: numId('now-' + Date.now() + '-' + (++_counter)),
       title: title || '成长提醒',
       body: body || '',
-      channel: channelOfSound(soundKey || getReminderSound()),
     })
     return !(res && res.delivered === false)
   } catch (e) {
@@ -303,20 +293,15 @@ export async function reminderSelfTest() {
     return lines
   }
 
-  // 步骤3：检查通知渠道（经自建桥查询；原生启动时已直建。失败不中断——原生调度自动选渠道）
+  // 步骤3：检查通知渠道（经自建桥查询；原生启动时已直建唯一提醒渠道。失败不中断——原生调度有兜底）
   try {
-    await step('3. 检查通知渠道（自建桥）', () => initNativeNotifications(), 9000, '自建桥渠道查询挂起（调度仍有原生兜底，继续验证）')
+    await step('3. 检查通知渠道（自建桥）', () => initNativeNotifications(), 9000, '桥查询挂起（调度仍有原生兜底，继续验证）')
     const st = _channelState || {}
     if (getActiveChannel()) {
-      const ring = (st.detail || []).find(c => c && c.id === 'growth_ring_alarm')
-      const s = ring && ring.sound ? String(ring.sound) : ''
-      const kind = s.startsWith('content://') ? 'content://（ROM 兼容铃声）'
-        : s.startsWith('android.resource://') ? 'resource://（旧式铃声，该 ROM 可能无声）'
-        : s ? '系统铃声' : '无声'
-      lines.push(`   ✓ 铃声渠道就绪（${st.hasRingtone ? '4 款铃声可用' : '系统默认音'}，App 内「🔊 铃声」可切换）`)
-      if (ring) lines.push(`      清脆铃声渠道 URI：${kind}`)
+      lines.push('   ✓ 提醒渠道就绪（单一渠道，铃声=系统默认通知音）')
+      lines.push('   ♪ 想换铃声：系统设置→通知→成长小美→「成长提醒」→声音，可选任意歌曲')
     } else {
-      lines.push('   ⚠ 未找到 growth 渠道 → 调度自动使用系统默认渠道')
+      lines.push('   ⚠ 未找到提醒渠道 → 调度自动使用系统默认渠道')
     }
     if (st.exactAlarm === false) {
       lines.push('   ⚠ 精确闹钟权限未开 → 提醒可能延迟（设置→应用→成长小美→闹钟和提醒）')
@@ -326,7 +311,8 @@ export async function reminderSelfTest() {
   }
 
   // 提示系统级权限（无法用代码检测，需人工确认）
-  lines.push('⚠ 请人工确认（设置→应用→成长小美）：「通知」允许、「闹钟和提醒」允许、电池优化不限制')
+  lines.push('⚠ MIUI 注意：新通知渠道默认静音。若通知不响，请到 系统设置→通知→成长小美→「成长提醒」渠道，开启 声音/振动/悬浮通知（仅需设置一次）')
+  lines.push('⚠ 请人工确认：电池优化=无限制、自启动=允许（避免划掉后台后提醒丢失）')
 
   // 步骤4a：立即弹测试通知（验证「通知渲染/铃声/震动」路径，不走闹钟）
   try {

@@ -13,29 +13,31 @@ import android.os.Build;
  * 原生侧直接创建通知渠道（完全绕开 Capacitor 插件桥）。
  *
  * 背景（红米 K60 实测）：
- * ① 经 LocalNotifications 插件桥的 createChannel 永久挂起 → 改由本类原生直建；
- * ② android.resource:// 形式的渠道铃声 URI 在该 ROM「存得住、放不出」（渠道在、触发时静默无声）
- *    → 自带铃声改用 SoundStore 生成的 content://（FileProvider）URI，全 ROM 可靠。
+ * ① LocalNotifications 插件桥在该 ROM 挂起 → 渠道由本类原生直建；
+ * ② MIUI 对新建渠道默认「无声/无振动/无悬浮/锁屏不显示」→ 渠道必须收敛到最少，
+ *    用户只需在系统设置里配置一次（通知→成长小美→「成长提醒」渠道 → 开声音/振动/悬浮，
+ *    声音可换成任意系统铃声/歌曲）；
+ * ③ 渠道铃声一律用系统默认通知音（用户在系统里可改），不做 app 内置铃声。
  *
- * 渠道规划（铃声创建后不可变 → 一个铃声一个固定渠道；URI 变更时自动删除重建完成迁移）：
- * - growth_ring_default：系统默认提示音
- * - growth_ring_alarm ：alarm.wav（清脆铃声）  [content://]
- * - growth_ring_soft  ：soft.wav（柔和提示）    [content://]
- * - growth_ring_urgent：urgent.wav（急促闹铃）  [content://]
- * - growth_guard      ：守护服务常驻通知（IMPORTANCE_MIN）
- * - growth_v3 / growth_fb：历史渠道保留（v3 含用户系统里自定义的铃声，仍作回退可用）。
+ * 渠道规划（只保留 2 个）：
+ * - growth_notify：唯一提醒渠道（铃声=系统默认通知音，用户系统里可改）
+ * - growth_guard ：守护服务常驻通知（IMPORTANCE_MIN，无声，无需用户配置）
+ *
+ * 启动时自动清理历史废弃渠道（growth_ring_* / growth_v3 / growth_fb / default）。
  */
 public final class NotificationChannelsHelper {
-    public static final String RING_DEFAULT = "growth_ring_default";
-    public static final String RING_ALARM   = "growth_ring_alarm";
-    public static final String RING_SOFT    = "growth_ring_soft";
-    public static final String RING_URGENT  = "growth_ring_urgent";
-    public static final String CH_GUARD     = "growth_guard";
-    public static final String CH_FALLBACK  = "growth_fb";  // 旧兼容渠道（保留）
+    public static final String NOTIFY = "growth_notify";  // 唯一提醒渠道
+    public static final String CH_GUARD = "growth_guard"; // 守护服务常驻通知（无声）
+
+    /** 历史废弃渠道（自动删除，减少用户系统设置里的混乱项） */
+    private static final String[] LEGACY_IDS = {
+            "growth_ring_default", "growth_ring_alarm", "growth_ring_soft", "growth_ring_urgent",
+            "growth_v3", "growth_fb", "default",
+    };
 
     private NotificationChannelsHelper() {}
 
-    /** 后台线程幂等创建全部渠道；任何异常只降级、绝不影响启动 */
+    /** 后台线程幂等执行：建 2 个渠道 + 清理废弃渠道；任何异常绝不影响启动 */
     public static void ensureCreated(Context context) {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return;
         final Context app = context.getApplicationContext();
@@ -43,45 +45,39 @@ public final class NotificationChannelsHelper {
             try {
                 NotificationManager nm = (NotificationManager) app.getSystemService(Context.NOTIFICATION_SERVICE);
                 if (nm == null) return;
-                create(app, nm, RING_DEFAULT, null, "系统默认提示音");
-                create(app, nm, RING_ALARM, "alarm", "清脆铃声");
-                create(app, nm, RING_SOFT, "soft", "柔和提示");
-                create(app, nm, RING_URGENT, "urgent", "急促闹铃");
-                create(app, nm, CH_FALLBACK, null, "系统默认提示音");
-            } catch (Throwable t) { /* 渠道创建失败绝不影响启动 */ }
+                // ① 唯一提醒渠道：系统默认通知音（用户在系统设置里可换成任意铃声/歌曲）
+                try {
+                    if (nm.getNotificationChannel(NOTIFY) == null) {
+                        NotificationChannel c = new NotificationChannel(NOTIFY, "成长提醒",
+                                NotificationManager.IMPORTANCE_HIGH);
+                        c.setDescription("节点闹钟、习惯打卡与番茄钟提醒");
+                        c.setLockscreenVisibility(Notification.VISIBILITY_PUBLIC);
+                        c.enableVibration(true);
+                        c.setSound(RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION),
+                                buildAudioAttributes());
+                        nm.createNotificationChannel(c);
+                    }
+                } catch (Throwable t) { /* ignore */ }
+                // ② 守护服务渠道（MIN：无声、不横幅；前台服务必需）
+                try {
+                    if (nm.getNotificationChannel(CH_GUARD) == null) {
+                        NotificationChannel g = new NotificationChannel(CH_GUARD, "提醒守护",
+                                NotificationManager.IMPORTANCE_MIN);
+                        g.setDescription("保持提醒准时的后台服务通知（无声）");
+                        g.setSound(null, null);
+                        g.enableVibration(false);
+                        g.setLockscreenVisibility(Notification.VISIBILITY_SECRET);
+                        nm.createNotificationChannel(g);
+                    }
+                } catch (Throwable t) { /* ignore */ }
+                // ③ 清理历史废弃渠道
+                for (String id : LEGACY_IDS) {
+                    try {
+                        if (nm.getNotificationChannel(id) != null) nm.deleteNotificationChannel(id);
+                    } catch (Throwable t) { /* ignore */ }
+                }
+            } catch (Throwable t) { /* 渠道操作失败绝不影响启动 */ }
         }, "notify-channel-init").start();
-    }
-
-    /** 幂等创建渠道：铃声 URI 与期望不一致（如旧版 resource:// 迁移）时删除重建 */
-    private static void create(Context app, NotificationManager nm, String id, String rawName, String desc) {
-        try {
-            Uri want = resolveSound(app, rawName);
-            NotificationChannel existing = nm.getNotificationChannel(id);
-            if (existing != null) {
-                Uri cur = existing.getSound();
-                boolean same = cur != null && want != null && cur.toString().equals(want.toString());
-                if (same) return;                       // 一致：保留（铃声不可变，含用户自定义）
-                nm.deleteNotificationChannel(id);       // 不一致：删除重建（迁移旧 URI）
-            }
-            NotificationChannel c = new NotificationChannel(id, "成长提醒", NotificationManager.IMPORTANCE_HIGH);
-            c.setDescription("节点闹钟、习惯打卡与番茄钟提醒（" + desc + "）");
-            c.setLockscreenVisibility(Notification.VISIBILITY_PUBLIC);
-            c.enableVibration(true);
-            c.setSound(want, buildAudioAttributes());
-            nm.createNotificationChannel(c);
-        } catch (Throwable t) { /* 单渠道失败不影响其他渠道 */ }
-    }
-
-    /** 铃声解析：自带 wav → content:// URI；系统默认 → 系统通知音；失败一律回落系统默认音。 */
-    private static Uri resolveSound(Context app, String rawName) {
-        Uri fallback = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION);
-        if (rawName == null) return fallback;
-        try {
-            Uri content = SoundStore.soundUri(app, rawName);
-            return content != null ? content : fallback;
-        } catch (Throwable t) {
-            return fallback;
-        }
     }
 
     private static AudioAttributes buildAudioAttributes() {
