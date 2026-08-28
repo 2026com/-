@@ -3,6 +3,7 @@ import { useAppState, useAppDispatch } from '../../context/AppContext.jsx'
 import { useMemo } from 'react'
 import { dateUtil } from '../../utils/storage.js'
 import { useAppTheme, toggleTheme } from '../../services/theme.js'
+import { reminderSelfTest } from '../../utils/notify.js'
 
 /**
  * 顶部状态栏 V2（手机端适配）
@@ -123,6 +124,16 @@ export default function TopStatusBar() {
           className="px-3 py-1.5 text-xs rounded-md bg-white/10 hover:bg-white/20 touch-feedback transition-colors"
         >
           {theme === 'dark' ? '☀️ 浅色' : '🌙 深色'}
+        </button>
+        <button
+          onClick={async () => {
+            const lines = await reminderSelfTest()
+            dispatch({ type: 'PUSH_MODAL', payload: { type: 'alert', title: '🔔 提醒链路自检', message: lines.join('\n') } })
+          }}
+          title="一键诊断：通知权限 / 渠道 / 调度，并 3 秒后发出测试通知"
+          className="px-3 py-1.5 text-xs rounded-md bg-white/10 hover:bg-white/20 touch-feedback transition-colors"
+        >
+          🔔 自检
         </button>
         <button
           onClick={() => dispatch({ type: 'TOGGLE_CALENDAR' })}

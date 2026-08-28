@@ -51,11 +51,12 @@ export async function initNativeNotifications() {
       console.warn('[notify] 无法加载 LocalNotifications 模块 — capacitor.plugins.json 可能缺失，请执行 npx cap sync android')
       return false
     }
-    // v2 渠道：修复「提醒无声音」——'default' 不是合法的 res/raw 资源名，
-    // 导致渠道实际无铃声；改用打包进 APK 的 res/raw/alarm.wav（双频提示音）。
-    // Android 渠道创建后属性不可变，故启用新渠道 id（growth_v2）让铃声生效。
+    // v3 渠道：'default' 不是合法的 res/raw 资源名（曾导致渠道无声）；
+    // v2 起改用打包进 APK 的 res/raw/alarm.wav（插件 SoundResolver 会去扩展名查找）。
+    // Android 渠道创建后属性不可变——若某台设备上 v2 已以异常状态存在，
+    // 升级渠道 id（growth_v3）可强制以正确配置重建。
     await LocalNotifications.createChannel({
-      id: 'growth_v2',
+      id: 'growth_v3',
       name: '成长提醒',
       description: '节点闹钟、习惯打卡与番茄钟提醒（系统级铃声）',
       importance: 5, // IMPORTANCE_HIGH：横幅 + 声音 + 锁屏显示
@@ -122,7 +123,7 @@ export async function scheduleNativeNotification(opts) {
           id: numId(opts.id),
           title: opts.title || '成长提醒',
           body: opts.body || '',
-          channelId: 'growth_v2',
+          channelId: 'growth_v3',
           schedule: { at: new Date(at), allowWhileIdle: true, exact: true },
         },
       ],
@@ -202,4 +203,62 @@ export async function notifyNow(title, body) {
   } catch (e) {
     // 某些桌面浏览器/系统禁用通知时静默
   }
+}
+
+/**
+ * 提醒链路自检：权限 → 渠道 → 调度一条 3 秒后的测试通知。
+ * 返回逐条诊断文本（供 UI 以弹窗展示），并在设备上真实发出测试通知供用户验证铃声/横幅。
+ */
+export async function reminderSelfTest() {
+  const lines = []
+  if (!isCapacitor()) {
+    return ['当前为浏览器（PWA）环境：提醒依赖页面保持打开，', '无法像 APK 一样在应用关闭后离线提醒。']
+  }
+  let LocalNotifications = null
+  try { LocalNotifications = await loadLocalNotifications() } catch (e) { /* ignore */ }
+  if (!LocalNotifications) {
+    lines.push('✗ 通知插件加载失败（请执行 npx cap sync android 后重装）')
+    return lines
+  }
+  // 1) 通知权限
+  try {
+    const p = await LocalNotifications.checkPermissions()
+    lines.push('1. 通知权限: ' + p.display)
+    if (p.display !== 'granted') {
+      const r = await LocalNotifications.requestPermissions()
+      lines.push('   请求后: ' + r.display)
+      if (r.display !== 'granted') {
+        lines.push('✗ 权限被拒绝 → 这就是收不到提醒的直接原因。')
+        lines.push('   请到 系统设置 → 应用 → 成长小美 → 通知 手动允许。')
+        return lines
+      }
+    }
+  } catch (e) {
+    lines.push('1. 权限检查异常: ' + (e && e.message ? e.message : e))
+  }
+  // 2) 渠道（Android 8+）：列出设备上的真实渠道与其声音状态
+  try {
+    await initNativeNotifications()
+    const lc = await LocalNotifications.listChannels()
+    const channels = (lc && lc.channels) || []
+    const desc = channels.map(c => `${c.id}${c.sound ? '（有声）' : '（无声!）'}`)
+    lines.push('2. 通知渠道: ' + (desc.length ? desc.join('、') : '无'))
+    const bad = channels.find(c => c.id === 'growth_v3' && !c.sound)
+    if (bad) lines.push('   ⚠ growth_v3 渠道无铃声（异常，请回复我）')
+  } catch (e) {
+    lines.push('2. 渠道检查异常: ' + (e && e.message ? e.message : e))
+  }
+  // 3) 精确闹钟（Android 12+ 可由用户撤销；14+ 默认关闭）
+  lines.push('3. 请确认系统已允许「闹钟和提醒」权限：')
+  lines.push('   设置 → 应用 → 成长小美 → 闹钟和提醒 → 允许')
+  // 4) 真实发一条测试通知（3 秒后触发）
+  const ok = await scheduleNativeNotification({
+    id: 'selftest-' + Date.now(),
+    title: '🔔 提醒自检',
+    body: '看到此通知 = 提醒链路正常。若无声音，长按本通知进渠道设置开启声音。',
+    at: Date.now() + 3000,
+  })
+  lines.push('4. 测试通知: ' + (ok ? '已调度，3 秒后应弹出（注意听声音/看震动）' : '✗ 调度失败（把此界面截图回复我）'))
+  lines.push('5. 若测试通知正常、打卡提醒仍不响 → 回复我，我再查调度同步环节。')
+  return lines
 }
