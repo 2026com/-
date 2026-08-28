@@ -11,5 +11,7 @@ public class MainActivity extends BridgeActivity {
     super.onCreate(savedInstanceState);
     // 原生侧直建通知渠道（绕开部分 ROM 上 JS 桥 createChannel 挂起的问题；幂等、后台线程）
     NotificationChannelsHelper.ensureCreated(this);
+    // 拉起提醒守护前台服务（App 内到点兜底弹出，双保险之一；幂等）
+    ReminderGuardService.ensureRunning(this);
   }
 }

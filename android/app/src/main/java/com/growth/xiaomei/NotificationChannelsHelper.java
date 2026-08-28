@@ -12,24 +12,29 @@ import android.os.Build;
 /**
  * 原生侧直接创建通知渠道（完全绕开 Capacitor 插件桥）。
  *
- * 背景（红米 K60 实测）：通过 JS 桥调用 LocalNotifications.createChannel 时，
- * 部分 MIUI/HyperOS ROM 会让该调用永久挂起——第一个渠道卡住会占死桥线程，
- * 后续所有插件调用（含降级渠道、schedule）全部排队挂死（自检步骤3超时的根因）。
- * 而原生 NotificationManager API 是所有 App 的标准路径，不经 WebView 桥，无此故障面。
- * 渠道一旦存在，JS 侧只需 listChannels 查询验证，不再依赖 createChannel。
+ * 背景（红米 K60 实测）：该 ROM 上经 LocalNotifications 插件桥的 createChannel 永久挂起，
+ * 而原生 NotificationManager API（所有 App 的标准路径）正常。渠道在 App 启动时由本类直建，
+ * JS 侧只做查询验证。
  *
- * 设计要点：
- * - 后台线程执行 + 全程 try-catch：任何 ROM 异常都不影响 App 启动与 UI；
- * - 先建「兼容渠道」（系统默认音，保底），再建「铃声渠道」（自带 alarm.wav）；
- * - 幂等：渠道已存在时 createNotificationChannel 等价于更新（声音等不可变字段保留原值）。
+ * 渠道规划（Android 渠道铃声创建后不可变 → 每个铃声固定一个渠道 id，App 内换铃声 = 换渠道）：
+ * - growth_ring_default：系统默认提示音
+ * - growth_ring_alarm ：res/raw/alarm.wav（清脆铃声，历史默认）
+ * - growth_ring_soft  ：res/raw/soft.wav（柔和提示）
+ * - growth_ring_urgent：res/raw/urgent.wav（急促闹铃）
+ * - growth_guard      ：前台守护服务常驻通知（IMPORTANCE_MIN，无声不打扰）
+ * - growth_v3 / growth_fb：历史渠道，保留不删（避免丢用户在系统里的自定义），不再使用。
  */
 public final class NotificationChannelsHelper {
-    public static final String CH_RINGTONE = "growth_v3";  // 自定义铃声渠道（res/raw/alarm.wav）
-    public static final String CH_FALLBACK = "growth_fb";  // 系统默认提示音渠道（最大兼容）
+    public static final String RING_DEFAULT = "growth_ring_default";
+    public static final String RING_ALARM   = "growth_ring_alarm";
+    public static final String RING_SOFT    = "growth_ring_soft";
+    public static final String RING_URGENT  = "growth_ring_urgent";
+    public static final String CH_GUARD     = "growth_guard";
+    public static final String CH_FALLBACK  = "growth_fb";  // 旧兼容渠道（保留）
 
     private NotificationChannelsHelper() {}
 
-    /** 在后台线程幂等创建两个提醒渠道；任何异常都只降级、绝不影响启动 */
+    /** 后台线程幂等创建全部渠道；任何异常只降级、绝不影响启动 */
     public static void ensureCreated(Context context) {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return;
         final Context app = context.getApplicationContext();
@@ -37,39 +42,36 @@ public final class NotificationChannelsHelper {
             try {
                 NotificationManager nm = (NotificationManager) app.getSystemService(Context.NOTIFICATION_SERVICE);
                 if (nm == null) return;
-
-                // ① 兼容渠道：系统默认通知音（不依赖任何自带资源，全 ROM 最稳）
-                try {
-                    NotificationChannel fb = new NotificationChannel(
-                            CH_FALLBACK, "成长提醒", NotificationManager.IMPORTANCE_HIGH);
-                    fb.setDescription("节点闹钟、习惯打卡与番茄钟提醒（系统默认提示音）");
-                    fb.setLockscreenVisibility(Notification.VISIBILITY_PUBLIC);
-                    fb.enableVibration(true);
-                    fb.setSound(RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION),
-                            buildAudioAttributes());
-                    nm.createNotificationChannel(fb);
-                } catch (Exception e) { /* 保底渠道失败不阻塞铃声渠道 */ }
-
-                // ② 铃声渠道：app 自带 alarm.wav；资源异常时自动回落系统默认音
-                try {
-                    NotificationChannel v3 = new NotificationChannel(
-                            CH_RINGTONE, "成长提醒", NotificationManager.IMPORTANCE_HIGH);
-                    v3.setDescription("节点闹钟、习惯打卡与番茄钟提醒（系统级铃声）");
-                    v3.setLockscreenVisibility(Notification.VISIBILITY_PUBLIC);
-                    v3.enableVibration(true);
-                    Uri sound;
-                    try {
-                        sound = Uri.parse("android.resource://" + app.getPackageName() + "/raw/alarm");
-                    } catch (Exception e) {
-                        sound = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION);
-                    }
-                    v3.setSound(sound, buildAudioAttributes());
-                    nm.createNotificationChannel(v3);
-                } catch (Exception e) { /* 铃声渠道失败时 JS 侧自动降级 growth_fb */ }
-            } catch (Exception e) {
-                // 渠道创建失败绝不影响启动；JS 侧 listChannels 查不到时会走默认渠道兜底
-            }
+                // 系统默认提示音渠道
+                create(app, nm, RING_DEFAULT, null, "系统默认提示音");
+                // app 自带铃声渠道（资源缺失时回落系统默认音）
+                create(app, nm, RING_ALARM, "alarm", "清脆铃声");
+                create(app, nm, RING_SOFT, "soft", "柔和提示");
+                create(app, nm, RING_URGENT, "urgent", "急促闹铃");
+                // 历史兼容渠道（保留以防旧渠道被用户自定义过）
+                create(app, nm, CH_FALLBACK, null, "系统默认提示音");
+            } catch (Throwable t) { /* 渠道创建失败绝不影响启动 */ }
         }, "notify-channel-init").start();
+    }
+
+    private static void create(Context app, NotificationManager nm, String id, String rawName, String desc) {
+        try {
+            if (nm.getNotificationChannel(id) != null) return; // 已存在：铃声不可变，跳过（保留用户自定义）
+            NotificationChannel c = new NotificationChannel(id, "成长提醒", NotificationManager.IMPORTANCE_HIGH);
+            c.setDescription("节点闹钟、习惯打卡与番茄钟提醒（" + desc + "）");
+            c.setLockscreenVisibility(Notification.VISIBILITY_PUBLIC);
+            c.enableVibration(true);
+            Uri sound;
+            try {
+                sound = rawName != null
+                        ? Uri.parse("android.resource://" + app.getPackageName() + "/raw/" + rawName)
+                        : RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION);
+            } catch (Throwable t) {
+                sound = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION);
+            }
+            c.setSound(sound, buildAudioAttributes());
+            nm.createNotificationChannel(c);
+        } catch (Throwable t) { /* 单渠道失败不影响其他渠道 */ }
     }
 
     private static AudioAttributes buildAudioAttributes() {

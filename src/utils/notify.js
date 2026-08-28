@@ -15,6 +15,7 @@
 
 import { LocalNotifications } from '@capacitor/local-notifications'
 import { registerPlugin } from '@capacitor/core'
+import { getReminderSound, channelOfSound } from '../services/reminderSound.js'
 
 /** 自建原生桥（AppBridge）：K60 实测 LocalNotifications 插件桥的通知/闹钟类调用
  *  在该 ROM 上全部挂起，而自建桥正常，故通知链路完全走自有原生代码。 */
@@ -81,15 +82,15 @@ export function initNativeNotifications() {
         exactAlarm: res.exactAlarm !== false,
         notificationsEnabled: res.notificationsEnabled !== false,
       }
-      if (ids.includes('growth_v3')) {
-        _activeChannel = 'growth_v3'
+      if (res.hasRingtone) {
+        _activeChannel = 'growth_ring_alarm'
         return true
       }
-      if (ids.includes('growth_fb')) {
-        _activeChannel = 'growth_fb'
+      if (res.hasFallback) {
+        _activeChannel = 'growth_ring_default'
         return true
       }
-      console.warn('[notify] 系统渠道中无 growth 渠道，已有:', ids.length ? ids.join(', ') : '(空)')
+      console.warn('[notify] 系统渠道中无 growth_ring 渠道，已有:', ids.length ? ids.join(', ') : '(空)')
       _activeChannel = null
       return false
     } catch (e) {
@@ -140,21 +141,21 @@ export async function ensureNotifyPermission() {
 export async function scheduleNativeNotification(opts) {
   if (!isCapacitor()) return false
   try {
-    const LocalNotifications = await loadLocalNotifications()
-    if (!LocalNotifications) return false
-    const perm = await LocalNotifications.checkPermissions()
-    if (perm.display !== 'granted') {
-      const res = await LocalNotifications.requestPermissions()
-      if (res.display !== 'granted') return false
+    // 通知总开关经自建桥检查（K60 上 LN 插件桥行为异常，彻底不再经它调用）
+    if (!_initDone) await initNativeNotifications()
+    if (_channelState && _channelState.notificationsEnabled === false) {
+      console.warn('[notify] 系统通知已关闭，调度跳过')
+      return false
     }
     const at = Math.max(Date.now() + 2000, Number(opts.at) || Date.now() + 2000)
-    // 自建桥（AlarmManager 原生调度）：K60 上 LocalNotifications 插件桥的 schedule 会挂死，
-    // 此路径已在该机型验证可用（保活/横竖屏同桥）。渠道由原生侧自动选择（铃声→兼容→默认）。
+    // 自建桥（异步调度：立即返回，原生后台武装 AlarmManager + 守护服务到点兜底弹出）。
+    // 渠道 = 用户在 App 内所选铃声对应渠道（原生侧有回退链，渠道缺失自动降级）。
     await AppBridge.scheduleNotification({
       id: numId(opts.id),
       title: opts.title || '成长提醒',
       body: opts.body || '',
       at,
+      channel: channelOfSound(getReminderSound()),
     })
     return true
   } catch (e) {
@@ -173,14 +174,15 @@ export async function cancelNativeNotification(id) {
 
 let _counter = 0
 
-/** 立即弹一条系统通知（自建桥直弹，不走闹钟）——用于自检验证「通知渲染/铃声」路径。 */
-export async function notifyNativeNow(title, body) {
+/** 立即弹一条系统通知（自建桥直弹，不走闹钟）——用于铃声试响 / 自检。 */
+export async function notifyNativeNow(title, body, soundKey) {
   if (!isCapacitor()) return false
   try {
     await AppBridge.notifyNow({
       id: numId('now-' + Date.now() + '-' + (++_counter)),
       title: title || '成长提醒',
       body: body || '',
+      channel: channelOfSound(soundKey || getReminderSound()),
     })
     return true
   } catch (e) {
@@ -304,7 +306,7 @@ export async function reminderSelfTest() {
     await step('3. 检查通知渠道（自建桥）', () => initNativeNotifications(), 9000, '自建桥渠道查询挂起（调度仍有原生兜底，继续验证）')
     const st = _channelState || {}
     if (getActiveChannel()) {
-      lines.push(`   ✓ 生效渠道：${getActiveChannel()}（${getActiveChannel() === 'growth_v3' ? '自定义铃声' : '系统默认提示音'}）`)
+      lines.push(`   ✓ 铃声渠道就绪（${st.hasRingtone ? '4 款铃声可用' : '系统默认音'}，App 内「🔊 铃声」可切换）`)
     } else {
       lines.push('   ⚠ 未找到 growth 渠道 → 调度自动使用系统默认渠道')
     }
@@ -326,15 +328,16 @@ export async function reminderSelfTest() {
     lines.push('   ✗ 立即通知也挂起 = 通知渲染被 ROM 拦截，请截图回复我')
   }
 
-  // 步骤4b：调度一条 3 秒后的闹钟通知（验证 AlarmManager 定时路径）
+  // 步骤4b：调度一条 3 秒后的定时通知（原生异步执行 + 守护服务到点兜底）
   try {
-    await step('4b. 3 秒后闹钟通知', () => scheduleNativeNotification({
+    await step('4b. 定时提醒（3 秒后）', () => scheduleNativeNotification({
       id: 'selftest-' + Date.now(),
       title: '🔔 提醒自检 · 定时',
       body: '看到此条 = 定时提醒链路正常（锁屏/杀进程也能到）',
       at: Date.now() + 3000,
-    }), 6000)
-    lines.push('   ✓ 已调度 → 3 秒后应再弹一条定时通知')
+    }), 8000)
+    lines.push('   ✓ 已提交调度（原生后台执行）→ 3~18 秒内应弹出「定时」通知')
+    lines.push('      （3 秒内弹 = 系统闹钟路径通；稍晚弹 = 守护服务兜底生效，均属正常）')
   } catch (e) {
     lines.push('   ↳ 调度环节卡住/失败，请截图回复我')
   }

@@ -91,7 +91,8 @@ public class AppBridgePlugin extends Plugin {
     // 背景（K60 实测）：该 ROM 上 LocalNotifications 插件桥的通知/闹钟类调用全部挂起，
     // 而本插件桥（保活/横竖屏）正常，故通知链路改走自有代码。
 
-    /** 调度定时通知 {id:number, title:string, body:string, at:number(毫秒时间戳)} */
+    /** 调度定时通知（异步：立即返回，后台武装闹钟 + 守护服务兜底）
+     *  {id:number, title:string, body:string, at:number(毫秒时间戳), channel?:string(铃声渠道id)} */
     @PluginMethod
     public void scheduleNotification(PluginCall call) {
         Integer id = call.getInt("id");
@@ -101,19 +102,20 @@ public class AppBridgePlugin extends Plugin {
             return;
         }
         try {
-            NotificationScheduler.schedule(
+            NotificationScheduler.scheduleAsync(
                     getContext(),
                     id,
                     call.getString("title", "成长提醒"),
                     call.getString("body", ""),
-                    at.longValue());
+                    at.longValue(),
+                    call.getString("channel", null));
             call.resolve();
         } catch (Exception e) {
             call.reject("调度失败: " + e.getMessage());
         }
     }
 
-    /** 立即弹一条系统通知 {id:number, title, body}（不走闹钟，用于自检验证通知路径） */
+    /** 立即弹一条系统通知 {id:number, title, body, channel?}（不走闹钟，用于试听/自检） */
     @PluginMethod
     public void notifyNow(PluginCall call) {
         Integer id = call.getInt("id");
@@ -123,7 +125,8 @@ public class AppBridgePlugin extends Plugin {
                     getContext(),
                     id,
                     call.getString("title", "成长提醒"),
-                    call.getString("body", ""));
+                    call.getString("body", ""),
+                    call.getString("channel", null));
             call.resolve();
         } catch (Exception e) {
             call.reject("通知失败: " + e.getMessage());
@@ -155,8 +158,8 @@ public class AppBridgePlugin extends Plugin {
                 for (android.app.NotificationChannel c : nm.getNotificationChannels()) {
                     if (c == null) continue;
                     channels.put(c.getId());
-                    if (NotificationChannelsHelper.CH_RINGTONE.equals(c.getId())) hasRingtone = true;
-                    if (NotificationChannelsHelper.CH_FALLBACK.equals(c.getId())) hasFallback = true;
+                    if (NotificationChannelsHelper.RING_ALARM.equals(c.getId())) hasRingtone = true;
+                    if (NotificationChannelsHelper.RING_DEFAULT.equals(c.getId())) hasFallback = true;
                 }
             }
             boolean exact = true;
