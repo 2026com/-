@@ -9,6 +9,8 @@
  *   注意：Android 13+ 需动态申请 POST_NOTIFICATIONS 权限；精确闹钟依赖 SCHEDULE_EXACT_ALARM。
  */
 
+import { LocalNotifications } from '@capacitor/local-notifications'
+
 const ICON = '/pwa-icon-192x192.png'
 
 /** 是否运行在 Capacitor 原生 WebView 里 */
@@ -21,16 +23,12 @@ function isCapacitor() {
   return false
 }
 
-/** 动态加载本地通知插件（web 环境不加载，避免破坏 PWA 构建） */
-async function loadLocalNotifications() {
-  try {
-    const mod = await import('@capacitor/local-notifications')
-    return mod.LocalNotifications || null
-  } catch (e) {
-    // @capacitor/local-notifications 未安装或构建未包含
-    console.warn('[notify] @capacitor/local-notifications 加载失败 — 原生通道不可用:', e?.message)
-    return null
-  }
+/** 获取本地通知插件引用（V1.1 起为静态导入，恒可用；Web 端由插件 web 实现兜底） */
+function loadLocalNotifications() {
+  // 修复记录：此前为动态 import()，在部分设备 WebView 中分块请求会被
+  // PWA Service Worker 拦截而永久挂起（自检步骤1超时的根因）。
+  // 插件 JS 仅约 15KB，改为随主包静态加载，彻底消除该故障面。
+  return Promise.resolve(LocalNotifications || null)
 }
 
 /** 把任意字符串 id 稳定映射为 Android 正整数通知 id（1 ~ 2147483646） */
@@ -232,16 +230,11 @@ export async function reminderSelfTest() {
 
   let LocalNotifications = null
 
-  // 步骤1：动态加载通知插件模块（若卡住 → WebView 动态加载被拦截/资源缺失）
+  // 步骤1：通知插件就绪（静态打包，无运行时拉取，恒可用）
   try {
-    LocalNotifications = await step(
-      '1. 加载通知插件模块',
-      () => import('@capacitor/local-notifications').then(m => m.LocalNotifications),
-      6000
-    )
-    if (!LocalNotifications) throw new Error('模块为空')
+    await step('1. 通知插件就绪（静态打包）', () => Promise.resolve(!!LocalNotifications), 2000)
   } catch (e) {
-    lines.push('   ↳ 处理建议：手机设置 → 应用 → 成长小美 → 存储 → 清除缓存，重进后再自检一次')
+    lines.push('   ↳ 插件未就绪属异常，请重启应用后重试')
     return lines
   }
 

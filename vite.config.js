@@ -8,6 +8,11 @@ export default defineConfig({
     // 阶段1：PWA 支持（离线可用 + 可安装到桌面/手机）
     VitePWA({
       registerType: 'autoUpdate',
+      // 关键（2026-08-28）：APK 原生壳内 WebView 不需要 PWA 离线缓存，
+      // 且旧 Service Worker 会拦截新版本代码分块的请求，导致动态 import() 永久挂起
+      // （实测症状：通知插件加载超时、提醒调度卡死）。改为自毁式 SW：
+      // 新 sw.js 会注销旧 SW 并清空全部缓存，之后所有资源直连本地服务。
+      selfDestroying: true,
       includeAssets: ['pwa-icon-192x192.png', 'pwa-icon-512x512.png', 'pwa-icon-96x96.png'],
       manifest: {
         name: '个人成长强者体系',
