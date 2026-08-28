@@ -22,6 +22,9 @@ import { HealthPage } from './systems/health/index.js'
 import { MindCommunityPage } from './systems/mind-community/index.js'
 import { useAppState, useAppDispatch } from './context/AppContext.jsx'
 import { initShareReceiver, disposeShareReceiver, flushPendingShares } from './services/shareReceiver.js'
+import { Clipboard } from '@capacitor/clipboard'
+import { dbGet, dbSet, getShareInbox, setShareInbox } from './services/db.js'
+import { extractFirstUrl } from './systems/knowledge-base/services/knowledgeImport.js'
 
 export default function App() {
   const state = useAppState()
@@ -58,6 +61,57 @@ export default function App() {
   useEffect(() => {
     flushPendingShares().catch((e) => console.warn('[shareReceiver] 启动检查失败', e))
   }, [])
+
+  // ===== 剪贴板链接检测（抖音等 App 只能“复制链接”）=====
+  // 启动 2s 后 + 每次回到前台时读取剪贴板：若为链接且与上次检测不同 →
+  // 弹窗询问是否加入「待处理」队列（growth_app_v1_share_inbox），
+  // 之后在 AI 助手 → 添加知识 面板顶部可一键选用导入。
+  useEffect(() => {
+    let mounted = true
+    const check = async () => {
+      try {
+        if (!mounted || document.visibilityState !== 'visible') return
+        const { value } = await Clipboard.read()
+        const text = String(value || '').trim()
+        if (!text) return
+        const url = extractFirstUrl(text)
+        if (!url) return
+        const last = dbGet('growth_app_v1_last_clipboard', '')
+        if (last === url) return // 已询问过同一链接，不重复打扰
+        dbSet('growth_app_v1_last_clipboard', url)
+        dispatch({
+          type: 'PUSH_MODAL',
+          payload: {
+            type: 'confirm',
+            title: '📋 检测到剪贴板链接',
+            message: `${url.slice(0, 80)}${url.length > 80 ? '…' : ''}\n\n是否加入待处理？之后可在 AI 助手 → 添加知识 中导入为知识节点。`,
+            okText: '加入待处理',
+            onOk: async () => {
+              try {
+                const inbox = await getShareInbox()
+                if ((inbox || []).some(it => it && it.content === url && it.status === 'pending')) {
+                  dispatch({ type: 'PUSH_MODAL', payload: { type: 'toast', message: 'ℹ️ 该链接已在待处理列表中' } })
+                  return
+                }
+                await setShareInbox([...(inbox || []), { id: Date.now(), content: url, source: 'clipboard', receivedAt: Date.now() }])
+                dispatch({ type: 'PUSH_MODAL', payload: { type: 'toast', message: '✅ 已加入待处理：AI 助手 → 添加知识 中可选用了' } })
+              } catch (e) {
+                dispatch({ type: 'PUSH_MODAL', payload: { type: 'toast', message: '⚠️ 写入失败，请重试' } })
+              }
+            }
+          }
+        })
+      } catch (e) { /* 无剪贴板权限/不支持 → 静默跳过 */ }
+    }
+    const timer = setTimeout(check, 2000)
+    const onVisible = () => { if (document.visibilityState === 'visible') check() }
+    document.addEventListener('visibilitychange', onVisible)
+    return () => {
+      mounted = false
+      clearTimeout(timer)
+      document.removeEventListener('visibilitychange', onVisible)
+    }
+  }, [dispatch])
 
   return (
     <div className="h-full w-full flex flex-col bg-system-bg overflow-hidden relative">
@@ -104,7 +158,12 @@ export default function App() {
 
       {/* 显示控制悬浮球（仅长期目标横线本 / 3D 知识库页提供）：纯净模式、横竖屏切换、深浅色主题 */}
       {(location.pathname.startsWith('/goals') || location.pathname.startsWith('/knowledge-base')) && (
-        <DisplayControls pureMode={pureMode} onTogglePure={() => setPureMode(v => !v)} />
+        <DisplayControls pureMode={pureMode} onTogglePure={() => setPureMode(v => {
+          const next = !v
+          // 广播给页内组件（3D 知识库隐藏标题卡/右上按钮列/底部图例）
+          try { window.dispatchEvent(new CustomEvent('app:pure-mode', { detail: { on: next } })) } catch { /* ignore */ }
+          return next
+        })} />
       )}
     </div>
   )

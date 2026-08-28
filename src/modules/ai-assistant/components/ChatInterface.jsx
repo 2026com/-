@@ -246,6 +246,21 @@ export default function AIChatSidebar({ onOpenConfig, embedded = false }) {
     })
   }
 
+  // ===== 滑动返回手势：展开态下「向左大幅滑动」收起抽屉（仅浮球展开模式；嵌入模式走左侧抽屉的右滑） =====
+  const drawerSwipeRef = useRef(null)
+  const onDrawerTouchStart = (e) => {
+    const t = e.touches[0]
+    drawerSwipeRef.current = { x: t.clientX, y: t.clientY }
+  }
+  const onDrawerTouchEnd = (e) => {
+    if (!drawerSwipeRef.current || embedded || !expanded) return
+    const t = e.changedTouches[0]
+    const dx = t.clientX - drawerSwipeRef.current.x
+    const dy = t.clientY - drawerSwipeRef.current.y
+    drawerSwipeRef.current = null
+    if (dx < -90 && Math.abs(dx) > Math.abs(dy) * 1.2) setExpanded(false)
+  }
+
   return (
     <>
       {/* ============ 折叠态常驻 tab（仅非 embedded 模式显示；屏幕右侧贴边，仅垂直方向可拖动） ============ */}
@@ -296,7 +311,11 @@ export default function AIChatSidebar({ onOpenConfig, embedded = false }) {
         )}
 
         {/* 抽屉主体 */}
-        <div className={`relative h-full w-full flex flex-col ${embedded ? 'bg-white' : 'bg-white/95 backdrop-blur-xl border-l border-slate-200 shadow-2xl'}`}>
+        <div
+          onTouchStart={onDrawerTouchStart}
+          onTouchEnd={onDrawerTouchEnd}
+          className={`relative h-full w-full flex flex-col ${embedded ? 'bg-white' : 'bg-white/95 backdrop-blur-xl border-l border-slate-200 shadow-2xl'}`}
+        >
           {/* 顶部栏 */}
           <div className="flex items-center justify-between px-4 py-3 border-b border-slate-100 shrink-0">
             <div className="flex items-center gap-2">

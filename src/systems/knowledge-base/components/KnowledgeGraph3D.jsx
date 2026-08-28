@@ -832,7 +832,8 @@ function GraphPointsHQ({ layout, nodesById, adjacency, maxDegree, selectedId, ho
       baseColors[i * 3 + 2] = col.b * lvl
       const degree = adjacency.get(id)?.size || 0
       // 尺寸随连接度动态映射(平方根:中度节点同样有可观光球,枢纽最大)
-      baseSizes[i] = (0.32 + Math.sqrt(degree / Math.max(1, maxDegree)) * 0.82) * HQ_POINT_SIZE_K
+      // 基础值 0.45：与背景光点视觉尺寸对齐（原 0.32 时节点光点比背景光点略小）
+      baseSizes[i] = (0.45 + Math.sqrt(degree / Math.max(1, maxDegree)) * 0.82) * HQ_POINT_SIZE_K
       entries.push({ id, neighbors: adjacency.get(id) || EMPTY_SET, isHub: !!node?.isHub, cat: node?.category })
     })
     const geo = new THREE.BufferGeometry()
@@ -1187,6 +1188,14 @@ export default function KnowledgeGraph3D({
     return () => window.removeEventListener('knowledge:nodes-added', onNodesAdded)
   }, [])
 
+  // ===== 纯净模式联动：App 层切换后隐藏页内 UI（标题卡/右上按钮列/底部图例） =====
+  const [pureMode, setPureMode] = useState(false)
+  useEffect(() => {
+    const handler = (e) => setPureMode(!!(e.detail && e.detail.on))
+    window.addEventListener('app:pure-mode', handler)
+    return () => window.removeEventListener('app:pure-mode', handler)
+  }, [])
+
   // ===== 双画质档状态机：高清(HQ 点云+Bloom) / 流畅(lite 光晕贴图,低配版) =====
   // auto 档按设备探测落到具体档位（低端→流畅，其余→高清，卡顿由 PerfGuard 兜底）；
   // 高清/流畅为用户显式选择
@@ -1389,7 +1398,7 @@ export default function KnowledgeGraph3D({
       </Canvas>
 
       {/* 运行时提示条（如「高画质已自动调低」），自动消失 */}
-      {notice && (
+      {notice && !pureMode && (
         <div className="absolute top-14 left-1/2 -translate-x-1/2 px-3 py-1.5 rounded-full bg-slate-900/85 border border-indigo-500/30 text-[11px] text-indigo-100 backdrop-blur pointer-events-none whitespace-nowrap">
           {notice}
         </div>
@@ -1398,7 +1407,7 @@ export default function KnowledgeGraph3D({
       {/* ===== HTML 覆盖 UI 层（不进 Canvas，文字清晰且可访问性友好） ===== */}
 
       {/* 顶部标题栏 + 工具按钮 */}
-      <div className="absolute top-0 inset-x-0 p-3 flex items-start justify-between gap-3 pointer-events-none">
+      <div className={`absolute top-0 inset-x-0 p-3 flex items-start justify-between gap-3 pointer-events-none ${pureMode ? 'hidden' : ''}`}>
         <div className="bg-slate-900/60 backdrop-blur rounded-xl px-3 py-2 pointer-events-auto">
           <div className="text-sm font-bold text-indigo-100 flex items-center gap-1.5">
             🧠 知识宇宙
@@ -1459,7 +1468,7 @@ export default function KnowledgeGraph3D({
       </div>
 
       {/* 底部类别图例：分类仅作过滤/高亮工具（再点一次取消），不是布局依据 */}
-      <div className="absolute bottom-3 left-3 flex flex-wrap items-center gap-x-1.5 gap-y-1 max-w-[52%]">
+      <div className={`absolute bottom-3 left-3 flex flex-wrap items-center gap-x-1.5 gap-y-1 max-w-[52%] ${pureMode ? 'hidden' : ''}`}>
         {GRAPH_CATEGORIES.map(cat => {
           const active = activeCategory === cat.id
           return (
@@ -1527,6 +1536,14 @@ export default function KnowledgeGraph3D({
             </div>
           )}
         </div>
+      )}
+
+      {/* 添加知识点弹窗：有节点状态下由右上角「➕ 添加」打开（零状态分支内另有同款弹窗） */}
+      {addModalOpen && (
+        <AddKnowledgeModal
+          onSave={(meta) => { addKnowledgePoint(meta); setAddModalOpen(false) }}
+          onClose={() => setAddModalOpen(false)}
+        />
       )}
 
     </div>

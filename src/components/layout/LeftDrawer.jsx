@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react'
+import React, { useMemo, useState, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAppState, useAppDispatch } from '../../context/AppContext.jsx'
 import { getSEVEN_SYSTEMS_EFFECTIVE } from '../../utils/constants.js'
@@ -48,10 +48,30 @@ export default function LeftDrawer() {
   const dispatch = useAppDispatch()
   const { drawerOpen, drawerMode } = settings
 
+  // ===== 滑动返回手势：展开状态下在抽屉内「向右大幅滑动」收起 =====
+  const swipeRef = useRef(null)
+  const onDrawerTouchStart = (e) => {
+    const t = e.touches[0]
+    swipeRef.current = { x: t.clientX, y: t.clientY }
+  }
+  const onDrawerTouchEnd = (e) => {
+    if (!swipeRef.current || !drawerOpen) return
+    const t = e.changedTouches[0]
+    const dx = t.clientX - swipeRef.current.x
+    const dy = t.clientY - swipeRef.current.y
+    swipeRef.current = null
+    // 大幅横滑（>90px 且横向位移明显大于纵向）→ 收起抽屉
+    if (dx > 90 && Math.abs(dx) > Math.abs(dy) * 1.2) {
+      dispatch({ type: 'TOGGLE_DRAWER' })
+    }
+  }
+
   const width = !drawerOpen ? 60 : drawerMode === 'ai' ? 380 : 248
 
   return (
     <aside
+      onTouchStart={onDrawerTouchStart}
+      onTouchEnd={onDrawerTouchEnd}
       className="drawer-transition h-full bg-white border-r border-slate-200 flex flex-col overflow-hidden z-20"
       style={{ width }}
     >
