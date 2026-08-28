@@ -45,6 +45,23 @@ export default function TopStatusBar() {
   const { activeTab } = state.ui
   const theme = useAppTheme()
 
+  // ===== 提醒自检（自包含浮层：点击立即反馈，不依赖 ModalRoot）=====
+  const [selfTest, setSelfTest] = useState(null) // null | {loading:true} | {lines:[...]} | {error:'...'}
+  const runSelfTest = async () => {
+    console.log('[selftest] clicked')
+    setSelfTest({ loading: true })
+    try {
+      const withTimeout = (p, ms) => Promise.race([
+        p,
+        new Promise((_, rej) => setTimeout(() => rej(new Error('自检超时：原生调用 15 秒无响应（请截图回复我）')), ms)),
+      ])
+      const lines = await withTimeout(reminderSelfTest(), 15000)
+      setSelfTest({ lines })
+    } catch (e) {
+      setSelfTest({ error: String((e && e.message) || e) })
+    }
+  }
+
   // ===== V2：安全区顶部补偿（CSS env 失效时 JS 兜底）=====
   const [safeTop, setSafeTop] = useState(() => detectSafeTop())
   useEffect(() => {
@@ -126,10 +143,7 @@ export default function TopStatusBar() {
           {theme === 'dark' ? '☀️ 浅色' : '🌙 深色'}
         </button>
         <button
-          onClick={async () => {
-            const lines = await reminderSelfTest()
-            dispatch({ type: 'PUSH_MODAL', payload: { type: 'alert', title: '🔔 提醒链路自检', message: lines.join('\n') } })
-          }}
+          onClick={runSelfTest}
           title="一键诊断：通知权限 / 渠道 / 调度，并 3 秒后发出测试通知"
           className="px-3 py-1.5 text-xs rounded-md bg-white/10 hover:bg-white/20 touch-feedback transition-colors"
         >
@@ -148,6 +162,41 @@ export default function TopStatusBar() {
           >
             📊 {state.ui.dashboardOpen ? '收起仪表盘' : '打开数据仪表盘'}
           </button>
+        )}
+
+        {/* 提醒自检浮层（自包含：点击立即显示，15s 超时保护，异常可视化） */}
+        {selfTest && (
+          <div
+            className="fixed inset-0 z-[70] flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-sm"
+            onClick={() => setSelfTest(null)}
+          >
+            <div
+              className="relative w-full max-w-sm bg-white rounded-2xl shadow-2xl border border-slate-200 p-5"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="flex items-center justify-between mb-3">
+                <div className="text-base font-bold text-slate-800">🔔 提醒链路自检</div>
+                <button
+                  onClick={() => setSelfTest(null)}
+                  className="w-7 h-7 rounded-lg hover:bg-slate-100 text-slate-400 flex items-center justify-center text-sm"
+                >✕</button>
+              </div>
+              {selfTest.loading && (
+                <div className="text-sm text-slate-500 flex items-center justify-center gap-2 py-6">
+                  <span className="w-4 h-4 rounded-full border-2 border-indigo-300 border-t-indigo-500 animate-spin" />
+                  正在逐项检测（权限 / 渠道 / 调度）…
+                </div>
+              )}
+              {selfTest.error && (
+                <div className="text-sm text-rose-600 bg-rose-50 rounded-xl p-3 leading-relaxed break-words">
+                  ❌ {selfTest.error}
+                </div>
+              )}
+              {selfTest.lines && (
+                <div className="text-sm text-slate-700 leading-relaxed whitespace-pre-wrap">{selfTest.lines.join('\n')}</div>
+              )}
+            </div>
+          </div>
         )}
       </div>
     </header>
