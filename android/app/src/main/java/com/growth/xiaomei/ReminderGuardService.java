@@ -24,6 +24,8 @@ public class ReminderGuardService extends Service {
     private static final long TICK_MS = 15000;
     private static final int FOREGROUND_ID = 2001;
     private static volatile boolean sRunning = false;
+    /** 常驻部分唤醒锁：熄屏后 CPU 不休眠 → 15s 扫描照常走 → 后台/熄屏到点也能弹横幅+响铃（微信式） */
+    private static android.os.PowerManager.WakeLock sWakeLock;
 
     private Handler handler;
 
@@ -71,6 +73,17 @@ public class ReminderGuardService extends Service {
             // 个别 ROM 限制前台服务：降级为普通后台扫描（进程活着仍有效，只是易被杀）
             sRunning = false;
         }
+        // 常驻 PARTIAL_WAKE_LOCK：防止熄屏后 CPU 休眠导致扫描停摆（前台服务持有，合规）
+        try {
+            if (sWakeLock == null) {
+                android.os.PowerManager pm = (android.os.PowerManager) getSystemService(Context.POWER_SERVICE);
+                if (pm != null) {
+                    sWakeLock = pm.newWakeLock(android.os.PowerManager.PARTIAL_WAKE_LOCK, "xiaomei:reminderGuard");
+                    sWakeLock.setReferenceCounted(false);
+                }
+            }
+            if (sWakeLock != null) sWakeLock.acquire(12 * 3600 * 1000L); // 12 小时保险上限，防泄漏
+        } catch (Throwable t) { /* 获取失败不影响扫描，只是熄屏后可能不准点 */ }
         handler.removeCallbacks(tick);
         handler.postDelayed(tick, FIRST_TICK_MS);
         return START_STICKY;
@@ -102,6 +115,7 @@ public class ReminderGuardService extends Service {
     public void onDestroy() {
         sRunning = false;
         if (handler != null) handler.removeCallbacks(tick);
+        try { if (sWakeLock != null) sWakeLock.release(); } catch (Throwable t) { /* ignore */ }
         super.onDestroy();
     }
 

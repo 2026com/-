@@ -168,7 +168,7 @@ public class AppBridgePlugin extends Plugin {
         try {
             final android.os.Handler handler = new android.os.Handler(android.os.Looper.getMainLooper());
             final int TOTAL = 3;      // 连响 3 次（用户要求加长提醒）
-            final long GAP_MS = 1300; // 每次间隔
+            final long GAP_MS = 900;  // 每次间隔 0.9 秒（用户指定）
             final int[] round = {0};
             final Runnable[] seq = new Runnable[1];
             seq[0] = new Runnable() {

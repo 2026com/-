@@ -3,6 +3,7 @@ import { useAppState, useAppDispatch } from '../../../context/AppContext.jsx'
 import { dateUtil } from '../../../utils/storage.js'
 import { HABIT_DIFFICULTY } from '../../../utils/constants.js'
 import { DailySection, TempSection, GRID_SIZE_DAILY, GRID_SIZE_TEMP } from './habits/CheckinSections.jsx'
+import WheelTimePicker from './habits/WheelTimePicker.jsx'
 import BatchCheckinModal from './habits/BatchCheckinModal.jsx'
 import PomodoroModal from './habits/PomodoroModal.jsx'
 
@@ -222,9 +223,6 @@ export default function DailyHabitsPage() {
               initial={null}
               onClose={() => setAddTempOpen(false)}
               onSubmit={(data) => {
-                if (state.tempTasks.length >= GRID_SIZE_TEMP) {
-                  toast(`临时任务最多 ${GRID_SIZE_TEMP} 条，请先删除一条再新增`); return
-                }
                 dispatch({ type: 'ADD_TEMP_TASK', payload: data })
                 // V2: 移除创建成功 toast，弹窗关闭即确认
                 setAddTempOpen(false)
@@ -326,6 +324,7 @@ function HabitForm({ initial, onClose, onSubmit }) {
 
   const [title, setTitle] = useState(initial?.title || '')
   const [reminder, setReminder] = useState(initial?.reminder || '')   // HH:MM
+  const [reminderOn, setReminderOn] = useState(!!initial?.reminder)   // 是否开启到点提醒
   const [estMinutes, setEst] = useState(initial?.estMinutes != null ? String(initial.estMinutes) : '30')
   const [difficulty, setDifficulty] = useState(initial?.difficulty || 'normal')
 
@@ -354,27 +353,32 @@ function HabitForm({ initial, onClose, onSubmit }) {
           className="w-full px-3 py-2.5 rounded-lg border border-slate-200 bg-slate-50 text-sm focus:outline-none focus:border-indigo-400"
         />
       </div>
-      <div className="grid grid-cols-2 gap-3">
-        <div>
-          <label className="text-xs text-slate-600 mb-1 block">提醒时间</label>
+      <div>
+        <label className="flex items-center gap-2 text-xs text-slate-600 mb-1">
           <input
-            type="time"
-            value={reminder}
-            onChange={(e) => setReminder(e.target.value)}
-            className="w-full px-3 py-2.5 rounded-lg border border-slate-200 bg-slate-50 text-sm focus:outline-none focus:border-indigo-400"
+            type="checkbox"
+            checked={reminderOn}
+            onChange={(e) => { setReminderOn(e.target.checked); if (!e.target.checked) setReminder('') }}
+            className="w-3.5 h-3.5 accent-indigo-600"
           />
-        </div>
-        <div>
-          <label className="text-xs text-slate-600 mb-1 block">预估耗时（分钟）</label>
-          <input
-            type="number"
-            min={1}
-            max={480}
-            value={estMinutes}
-            onChange={(e) => setEst(e.target.value)}
-            className="w-full px-3 py-2.5 rounded-lg border border-slate-200 bg-slate-50 text-sm focus:outline-none focus:border-indigo-400"
-          />
-        </div>
+          到点提醒（可选）
+        </label>
+        {reminderOn && (
+          <div className="rounded-xl border border-slate-200 bg-white p-2 mt-1">
+            <WheelTimePicker value={reminder || '09:00'} onChange={setReminder} />
+          </div>
+        )}
+      </div>
+      <div>
+        <label className="text-xs text-slate-600 mb-1 block">预估耗时（分钟）</label>
+        <input
+          type="number"
+          min={1}
+          max={480}
+          value={estMinutes}
+          onChange={(e) => setEst(e.target.value)}
+          className="w-full px-3 py-2.5 rounded-lg border border-slate-200 bg-slate-50 text-sm focus:outline-none focus:border-indigo-400"
+        />
       </div>
       <div>
         <label className="text-xs text-slate-600 mb-1 block">难度</label>
@@ -438,12 +442,9 @@ function TempForm({ initial, onClose, onSubmit }) {
       </div>
       <div>
         <label className="text-xs text-slate-600 mb-1 block">提醒时间 *</label>
-        <input
-          type="time"
-          value={reminderTime}
-          onChange={(e) => setReminderTime(e.target.value)}
-          className="w-full px-3 py-2.5 rounded-lg border border-slate-200 bg-slate-50 text-sm focus:outline-none focus:border-indigo-400"
-        />
+        <div className="rounded-xl border border-slate-200 bg-white p-2">
+          <WheelTimePicker value={reminderTime} onChange={setReminderTime} />
+        </div>
       </div>
       <label className="flex items-center gap-2 text-sm text-slate-700 cursor-pointer">
         <input

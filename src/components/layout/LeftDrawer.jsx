@@ -74,14 +74,26 @@ export default function LeftDrawer() {
     }
   }
 
+  // 收起：整条侧栏完全隐藏（不占屏幕宽度），只留一颗悬浮 » 按钮（点击展开）
+  if (!drawerOpen) {
+    return (
+      <button
+        onClick={() => dispatch({ type: 'TOGGLE_DRAWER' })}
+        className="absolute left-1.5 top-14 z-20 w-9 h-9 rounded-xl bg-white/95 border border-slate-200 shadow-md text-slate-500 hover:text-indigo-600 hover:bg-indigo-50 flex items-center justify-center text-base touch-feedback"
+        title="展开菜单"
+        aria-label="展开菜单"
+      >»</button>
+    )
+  }
+
   const width = isMobile
-    ? (drawerOpen ? 'min(78vw, 280px)' : 48)
-    : (!drawerOpen ? 60 : drawerMode === 'ai' ? 380 : 248)
+    ? (drawerMode === 'ai' ? 'min(85vw, 380px)' : 'min(78vw, 280px)')
+    : (drawerMode === 'ai' ? 380 : 248)
 
   return (
     <>
       {/* 移动端展开时的半透明遮罩（点击空白收起，抽屉为浮层不挤压内容） */}
-      {isMobile && drawerOpen && (
+      {isMobile && (
         <div
           className="absolute inset-0 bg-slate-900/25 z-20"
           onClick={() => dispatch({ type: 'TOGGLE_DRAWER' })}
@@ -92,7 +104,7 @@ export default function LeftDrawer() {
         onTouchStart={onDrawerTouchStart}
         onTouchEnd={onDrawerTouchEnd}
         className={`drawer-transition h-full bg-white border-r border-slate-200 flex flex-col overflow-hidden ${
-          isMobile && drawerOpen ? 'absolute inset-y-0 left-0 shadow-2xl z-30' : 'relative z-20'
+          isMobile ? 'absolute inset-y-0 left-0 shadow-2xl z-30' : 'relative z-20'
         }`}
         style={{ width }}
       >
