@@ -237,4 +237,18 @@ public class AppBridgePlugin extends Plugin {
             call.reject("查询失败: " + e.getMessage());
         }
     }
+
+    /** 退出应用：返回键「2 秒内双击」由前端判定后调用（finishAffinity 结束全部任务栈） */
+    @PluginMethod
+    public void exitApp(PluginCall call) {
+        Activity activity = getActivity();
+        if (activity == null) { call.reject("activity unavailable"); return; }
+        activity.runOnUiThread(new Runnable() {
+            @Override
+            public void run() {
+                activity.finishAffinity();
+            }
+        });
+        call.resolve();
+    }
 }

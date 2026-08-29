@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect } from 'react'
+import React, { useState, useMemo, useEffect, useRef } from 'react'
 import { useAppState, useAppDispatch } from '../../../context/AppContext.jsx'
 import { dateUtil } from '../../../utils/storage.js'
 import { HABIT_DIFFICULTY } from '../../../utils/constants.js'
@@ -6,6 +6,7 @@ import { DailySection, TempSection, GRID_SIZE_DAILY, GRID_SIZE_TEMP } from './ha
 import WheelTimePicker from './habits/WheelTimePicker.jsx'
 import BatchCheckinModal from './habits/BatchCheckinModal.jsx'
 import PomodoroModal from './habits/PomodoroModal.jsx'
+import { pushBackHandler } from '../../../utils/backStack.js'
 
 /**
  * 双页打卡真实交互版
@@ -294,6 +295,10 @@ export default function DailyHabitsPage() {
 
 /** 通用自绘模态容器（页面内，z-index 40 低于 ModalRoot 的 50） */
 function FormModal({ title, body, onClose }) {
+  // 返回键关闭表单浮层（注册全局返回栈；ref 保证 onClose 始终最新、只注册一次）
+  const closeRef = useRef(onClose)
+  closeRef.current = onClose
+  useEffect(() => pushBackHandler(() => closeRef.current()), [])
   return (
     <div
       className="fixed inset-0 z-40 flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm animate-in fade-in"
@@ -364,7 +369,7 @@ function HabitForm({ initial, onClose, onSubmit }) {
           到点提醒（可选）
         </label>
         {reminderOn && (
-          <div className="rounded-xl border border-slate-200 bg-white p-2 mt-1">
+          <div className="mt-1">
             <WheelTimePicker value={reminder || '09:00'} onChange={setReminder} />
           </div>
         )}
@@ -442,9 +447,7 @@ function TempForm({ initial, onClose, onSubmit }) {
       </div>
       <div>
         <label className="text-xs text-slate-600 mb-1 block">提醒时间 *</label>
-        <div className="rounded-xl border border-slate-200 bg-white p-2">
-          <WheelTimePicker value={reminderTime} onChange={setReminderTime} />
-        </div>
+        <WheelTimePicker value={reminderTime} onChange={setReminderTime} />
       </div>
       <label className="flex items-center gap-2 text-sm text-slate-700 cursor-pointer">
         <input

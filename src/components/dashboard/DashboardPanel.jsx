@@ -123,7 +123,7 @@ export default function DashboardPanel() {
   )
 
   return (
-    <div className="absolute top-0 right-0 w-full lg:w-[70%] xl:w-[60%] h-full bg-slate-50 border-l border-slate-200 z-25 overflow-y-auto no-scrollbar p-3 flex flex-col gap-3">
+    <div className="absolute top-0 right-0 w-full lg:w-[70%] xl:w-[60%] h-full bg-slate-50 border-l border-slate-200 z-40 overflow-y-auto no-scrollbar p-3 flex flex-col gap-3">
       {/* 标题栏 */}
       <div className="flex items-center justify-between shrink-0">
         <div>

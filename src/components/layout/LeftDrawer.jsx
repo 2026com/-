@@ -95,7 +95,7 @@ export default function LeftDrawer() {
       {/* 移动端展开时的半透明遮罩（点击空白收起，抽屉为浮层不挤压内容） */}
       {isMobile && (
         <div
-          className="absolute inset-0 bg-slate-900/25 z-20"
+          className="absolute inset-0 bg-slate-900/25 z-30"
           onClick={() => dispatch({ type: 'TOGGLE_DRAWER' })}
           aria-hidden="true"
         />
@@ -104,7 +104,7 @@ export default function LeftDrawer() {
         onTouchStart={onDrawerTouchStart}
         onTouchEnd={onDrawerTouchEnd}
         className={`drawer-transition h-full bg-white border-r border-slate-200 flex flex-col overflow-hidden ${
-          isMobile ? 'absolute inset-y-0 left-0 shadow-2xl z-30' : 'relative z-20'
+          isMobile ? 'absolute inset-y-0 left-0 shadow-2xl z-40' : 'relative z-20'
         }`}
         style={{ width }}
       >

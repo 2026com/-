@@ -5,6 +5,7 @@ import { dateUtil } from '../../utils/storage.js'
 import { useAppTheme, toggleTheme } from '../../services/theme.js'
 import { reminderSelfTest } from '../../utils/notify.js'
 import { isIgnoringBatteryOptimizations, requestIgnoreBatteryOptimization } from '../../services/device.js'
+import { pushBackHandler } from '../../utils/backStack.js'
 
 /**
  * 顶部状态栏 V2（手机端适配）
@@ -48,6 +49,11 @@ export default function TopStatusBar() {
 
   // ===== 提醒自检（自包含浮层：点击立即反馈，不依赖 ModalRoot）=====
   const [selfTest, setSelfTest] = useState(null) // null | {loading:true} | {lines:[...]} | {error:'...'}
+  // 返回键关闭自检浮层（后开先关，注册全局返回栈）
+  useEffect(() => {
+    if (!selfTest) return undefined
+    return pushBackHandler(() => setSelfTest(null))
+  }, [selfTest])
   const runSelfTest = async () => {
     console.log('[selftest] clicked')
     setSelfTest({ loading: true })

@@ -128,9 +128,10 @@ export default function CalendarDrawer() {
 
   return (
     <>
-      {/* [增强] 半透明遮罩 + 点击空白处关闭日历 + 右滑/下滑关闭 */}
+      {/* [修复] 遮罩 z-30 低于面板 z-40：原面板 z-25 为非法 Tailwind 类导致层级失效，
+          遮罩(带模糊)盖在日历上 → 全屏模糊 + 点哪都关；现去掉模糊、面板真正盖住遮罩 */}
       <div
-        className="fixed inset-0 z-20 bg-black/15 backdrop-blur-[1px] calendar-backdrop"
+        className="fixed inset-0 z-30 bg-black/25 calendar-backdrop"
         onClick={closeCalendar}
         onTouchEnd={(e) => {
           // 遮罩层上也支持滑动关闭（下滑关闭）
@@ -145,7 +146,7 @@ export default function CalendarDrawer() {
       />
       <div
         ref={drawerRef}
-        className="absolute top-0 right-0 h-full bg-white border-l border-slate-200 shadow-2xl z-25 flex flex-col animate-in fade-in slide-in-from-right-4 duration-300 calendar-drawer-mobile"
+        className="absolute top-0 right-0 h-full bg-white border-l border-slate-200 shadow-2xl z-40 flex flex-col animate-in fade-in slide-in-from-right-4 duration-300 calendar-drawer-mobile"
         style={{ width: 'min(300px, 82vw)' }}
         onTouchStart={onTouchStart}
         onTouchMove={onTouchMove}

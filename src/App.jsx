@@ -1,5 +1,5 @@
-import React, { useEffect, useState } from 'react'
-import { Routes, Route, Navigate, useLocation } from 'react-router-dom'
+import React, { useEffect, useRef, useState } from 'react'
+import { Routes, Route, Navigate, useLocation, useNavigate } from 'react-router-dom'
 import BottomTabs from './components/layout/BottomTabs.jsx'
 import LeftDrawer from './components/layout/LeftDrawer.jsx'
 import TopStatusBar from './components/layout/TopStatusBar.jsx'
@@ -23,13 +23,20 @@ import { MindCommunityPage } from './systems/mind-community/index.js'
 import { useAppState, useAppDispatch } from './context/AppContext.jsx'
 import { initShareReceiver, disposeShareReceiver, flushPendingShares } from './services/shareReceiver.js'
 import { Clipboard } from '@capacitor/clipboard'
+import { registerPlugin } from '@capacitor/core'
+import { runTopBackHandler } from './utils/backStack.js'
 import { dbGet, dbSet, getShareInbox, setShareInbox } from './services/db.js'
 import { extractFirstUrl } from './systems/knowledge-base/services/knowledgeImport.js'
+
+/** 原生壳（Capacitor APK）判定：返回键/退出仅原生环境有意义 */
+const IS_NATIVE = typeof window !== 'undefined' && !!(window.Capacitor && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform())
+const AppBridge = registerPlugin('AppBridge')
 
 export default function App() {
   const state = useAppState()
   const dispatch = useAppDispatch()
   const location = useLocation()
+  const navigate = useNavigate()
   // 纯净模式：隐藏顶栏/抽屉/底部 Tab（由显示控制悬浮球切换，仅横线本与 3D 知识库提供入口）
   const [pureMode, setPureMode] = useState(false)
 
@@ -112,6 +119,45 @@ export default function App() {
       document.removeEventListener('visibilitychange', onVisible)
     }
   }, [dispatch])
+
+  // ===== 安卓返回键 / 侧滑返回手势：一级关浮层 → 二级回首页 → 三级双击退出 =====
+  // 原生侧（MainActivity）拦截返回事件并派发 window 'backbutton'，这里统一决策，
+  // 杜绝「一按返回就退出 App」；退出必须 2 秒内连按两次。
+  const backStateRef = useRef(null)
+  backStateRef.current = {
+    modalCount: state.ui.modalStack.length,
+    dashboardOpen: state.ui.dashboardOpen,
+    calendarOpen: state.ui.calendarOpen,
+    drawerOpen: state.settings?.drawerOpen,
+    pathname: location.pathname,
+  }
+  const lastBackAtRef = useRef(0)
+  useEffect(() => {
+    if (!IS_NATIVE) return undefined
+    const onBack = () => {
+      const s = backStateRef.current || {}
+      // ① 全局弹窗栈（ModalRoot：confirm / alert / toast / 报告…）
+      if ((s.modalCount || 0) > 0) { dispatch({ type: 'POP_MODAL' }); return }
+      // ② 页面局部自绘浮层（时间选择器 / 习惯&临时任务表单 / 自检面板…后开先关）
+      if (runTopBackHandler()) return
+      // ③ 全局面板：仪表盘 / 打卡日历 / 左侧抽屉
+      if (s.dashboardOpen) { dispatch({ type: 'TOGGLE_DASHBOARD' }); return }
+      if (s.calendarOpen) { dispatch({ type: 'CLOSE_CALENDAR' }); return }
+      if (s.drawerOpen) { dispatch({ type: 'TOGGLE_DRAWER' }); return }
+      // ④ 页面级返回：非首页 → 回首页（长期目标为默认主页）
+      if (s.pathname && s.pathname !== '/goals') { navigate('/goals'); return }
+      // ⑤ 已在首页：2 秒内连按两次 → 退出 App
+      const now = Date.now()
+      if (now - lastBackAtRef.current < 2000) {
+        try { AppBridge.exitApp() } catch (e) { /* web 环境无此桥，忽略 */ }
+      } else {
+        lastBackAtRef.current = now
+        dispatch({ type: 'PUSH_MODAL', payload: { type: 'toast', message: '再按一次返回键退出小美', duration: 1600 } })
+      }
+    }
+    window.addEventListener('backbutton', onBack)
+    return () => window.removeEventListener('backbutton', onBack)
+  }, [dispatch, navigate])
 
   return (
     <div className="h-full w-full flex flex-col bg-system-bg overflow-hidden relative">
