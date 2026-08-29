@@ -46,6 +46,11 @@ public class ReminderGuardService extends Service {
         } catch (Throwable t) { /* 启动失败不影响 AlarmManager 主路径 */ }
     }
 
+    /** 守护服务是否存活（自检诊断用：false = 后台到点会失联，只能靠闹钟/锁定卡片） */
+    public static boolean isRunning() {
+        return sRunning;
+    }
+
     @Override
     public void onCreate() {
         super.onCreate();

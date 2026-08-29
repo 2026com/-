@@ -80,6 +80,8 @@ export function initNativeNotifications() {
         notificationsEnabled: res.notificationsEnabled !== false,
         detail: (res && res.detail) || [],
         lastAlarmResult: (res && res.lastAlarmResult) || '',
+        guardRunning: !!res.guardRunning,
+        pendingCount: (res && res.pendingCount) ?? -1,
       }
       if (res.hasNotify) {
         _activeChannel = 'growth_notify'
@@ -351,6 +353,12 @@ export async function reminderSelfTest() {
     }
     if (st.exactAlarm === false) {
       lines.push('   ⚠ 精确闹钟权限未开 → 提醒可能延迟（设置→应用→成长小美→闹钟和提醒）')
+    }
+    // 守护服务存活状态（后台到点能否兜底弹出的关键）
+    if (st.guardRunning === true) {
+      lines.push(`   ✓ 守护服务运行中（待触发 ${st.pendingCount >= 0 ? st.pendingCount : '?'} 条）`)
+    } else {
+      lines.push('   ⚠ 守护服务未运行 → 后台到点会失联。请：最近任务下拉本卡片点🔒锁定 + 系统设置→应用→成长小美→自启动=允许，然后重进 App')
     }
   } catch (e) {
     lines.push('   ⚠ 渠道查询挂起/失败 → 调度仍由原生自动选渠道（继续验证）')

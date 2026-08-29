@@ -231,6 +231,16 @@ public final class NotificationScheduler {
         } catch (Throwable t) { /* ignore */ }
     }
 
+    /** 待触发提醒数量（自检诊断用） */
+    public static int pendingCount(Context ctx) {
+        try {
+            SharedPreferences sp = ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE);
+            return new JSONArray(sp.getString(KEY_ITEMS, "[]")).length();
+        } catch (Throwable t) {
+            return -1;
+        }
+    }
+
     /** 守护服务扫描：弹出所有已到期且仍在 pending 列表的条目（= 闹钟未触发/未设上）。
      *  弹出前尽力取消对应闹钟防双响（失败无害）。 */
     public static synchronized void fireIfDue(Context ctx, long now) {

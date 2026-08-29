@@ -128,7 +128,11 @@ export function DailySection({
   )
 }
 
-/** 临时打卡视图：标题行 + 1排5列 卡片矩阵 + 大面积留白 */
+/**
+ * 临时打卡视图：闹钟 App 风格列表（大号时间 + 任务标题 + 右侧完成开关）。
+ * 参考系统闹钟界面：每行一张大卡片，时间为主视觉，开关控制完成态；
+ * 列表末尾常驻「＋ 新增临时提醒」行；点击卡片主体进入编辑。
+ */
 export function TempSection({
   visible, tempTasks, dispatch,
   confirmTempDelete, onCreateTemp, onEditTemp,
@@ -139,88 +143,94 @@ export function TempSection({
         visible ? 'opacity-100 translate-x-0 pointer-events-auto' : 'opacity-0 translate-x-4 pointer-events-none'
       }`}
     >
-      {/* 操作区（T4 已删除「新增临时任务」按钮：空格直接新建） */}
+      {/* 标题行 */}
       <div className="flex items-center justify-between mb-3">
-        <div className="text-xs text-slate-500">今日临时事项 · 一排 5 格</div>
-        <div className="text-xs text-slate-400">{tempTasks.length}/{GRID_SIZE_TEMP}</div>
+        <div className="text-xs text-slate-500">今日临时事项 · 闹钟式提醒</div>
+        <div className="text-xs text-slate-400">{tempTasks.length} 条</div>
       </div>
 
-      {/* 1 排 5 列 卡片矩阵（T4：点击空格直接新建；点击有卡主体编辑；左上角独立勾选框打卡） */}
-      <div className="grid grid-cols-5 gap-3">
-        {Array.from({ length: GRID_SIZE_TEMP }).map((_, i) => {
-          const task = tempTasks[i]
-          const done = !!task?.done
+      {/* 闹钟式卡片列表 */}
+      <div className="space-y-2.5">
+        {tempTasks.map(task => {
+          const done = !!task.done
+          // 时间拆解：24h → 上午/下午 + 12h 大号显示（闹钟 App 同款版式）
+          const m = String(task.reminderTime || '').match(/^(\d{1,2}):(\d{2})$/)
+          const h24 = m ? Number(m[1]) : 0
+          const ampm = h24 < 12 ? '上午' : '下午'
+          const h12 = h24 % 12 === 0 ? 12 : h24 % 12
+          const bigTime = m ? `${String(h12).padStart(2, '0')}:${m[2]}` : (task.reminderTime || '--:--')
           return (
             <div
-              key={i}
-              className={`
-                group relative rounded-xl border p-2.5 flex flex-col transition-all touch-feedback aspect-[3/4]
-                bg-slate-50 border-slate-200 hover:border-slate-300
-                ${task ? 'cursor-pointer' : 'cursor-add'}
-                ${done ? 'ring-2 ring-emerald-400 border-emerald-300 bg-emerald-50/50' : ''}
-              `}
-              onClick={() => {
-                if (!task) { onCreateTemp(); return }
-                onEditTemp(task.id)
-              }}
+              key={task.id}
+              className={`group relative rounded-2xl border p-4 pr-3 flex items-center gap-3 transition-all touch-feedback bg-slate-50 border-slate-200 hover:border-slate-300 ${
+                done ? 'ring-2 ring-emerald-400 border-emerald-300 bg-emerald-50/40' : ''
+              }`}
+              onClick={() => onEditTemp(task.id)}
             >
-              {task ? (
-                <>
-                  {/* T4：左上角独立完成勾选框（三区分离：1.打卡 2.主体编辑 3.右上角编辑/删除） */}
-                  <button
-                    className="absolute top-1.5 left-1.5 w-5 h-5 rounded-md border-2 flex items-center justify-center text-[10px] transition-all z-10"
-                    style={{
-                      background: done ? '#10b981' : '#fff',
-                      borderColor: done ? '#10b981' : '#cbd5e1',
-                      color: done ? '#fff' : '#cbd5e1'
-                    }}
-                    title={done ? '已完成（点击取消）' : '点击打卡完成'}
-                    onClick={(e) => {
-                      e.stopPropagation()
-                      dispatch({ type: 'TOGGLE_TEMP_TASK_DONE', id: task.id })
-                    }}
-                  >{done ? '✓' : ''}</button>
+              {/* 大号时间（闹钟主视觉） */}
+              <div className="flex items-baseline gap-1 shrink-0">
+                <span className={`text-[11px] font-medium ${done ? 'text-emerald-600' : 'text-slate-500'}`}>{ampm}</span>
+                <span className={`text-[34px] leading-none font-light tabular-nums tracking-tight ${done ? 'text-emerald-600' : 'text-slate-800'}`}>
+                  {bigTime}
+                </span>
+              </div>
 
-                  {/* 右上角图标（备选入口，保留不变） */}
-                  <div className="absolute top-1.5 right-1.5 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity z-10">
-                    <button
-                      className="w-5 h-5 rounded-md bg-white/90 border border-slate-200 text-slate-600 hover:bg-indigo-50 hover:text-indigo-600 flex items-center justify-center text-[10px]"
-                      title="编辑"
-                      onClick={(e) => { e.stopPropagation(); onEditTemp(task.id) }}
-                    >✏️</button>
-                    <button
-                      className="w-5 h-5 rounded-md bg-white/90 border border-slate-200 text-slate-600 hover:bg-rose-50 hover:text-rose-600 flex items-center justify-center text-[10px]"
-                      title="删除"
-                      onClick={(e) => { e.stopPropagation(); confirmTempDelete(task) }}
-                    >🗑️</button>
-                  </div>
-
-                  {/* 标题（左上预留 26px 勾选框） */}
-                  <div className={`text-[12px] font-semibold leading-snug break-words mt-7 ${done ? 'line-through text-emerald-700' : 'text-slate-800'}`}>
-                    {task.title}
-                  </div>
-
-                  {/* 底部：时间 + 铃铛 */}
-                  <div className="mt-auto flex items-center justify-between">
-                    <div className="text-[10px] text-slate-500">{task.reminderTime || '全天'}</div>
-                    {done ? <span className="text-[12px] text-emerald-500">✓</span> : (
-                      task.reminder !== false && <span className="text-[11px] text-slate-400">🔔</span>
-                    )}
-                  </div>
-                </>
-              ) : (
-                <div className="h-full flex flex-col items-center justify-center text-center gap-1 text-slate-400">
-                  <span className="text-xl leading-none">＋</span>
-                  <span className="text-[10px] leading-tight">空位 · 点击新建</span>
+              {/* 标题 + 提醒说明 */}
+              <div className="flex-1 min-w-0">
+                <div className={`text-sm font-semibold leading-snug break-words ${done ? 'line-through text-emerald-700' : 'text-slate-800'}`}>
+                  {task.title}
                 </div>
-              )}
+                <div className="text-[11px] text-slate-400 mt-1">
+                  {task.reminder !== false ? '🔔 到点提醒 + 提示音' : '仅记录 · 不提醒'}
+                  {done ? ' · 已完成' : ''}
+                </div>
+              </div>
+
+              {/* 右侧大开关（完成态 = ON，绿色） */}
+              <button
+                className="shrink-0 w-[52px] h-[30px] rounded-full relative transition-colors duration-200"
+                style={{ background: done ? '#10b981' : '#e2e8f0' }}
+                title={done ? '已完成（点击撤销）' : '点击打卡完成'}
+                onClick={(e) => {
+                  e.stopPropagation()
+                  dispatch({ type: 'TOGGLE_TEMP_TASK_DONE', id: task.id })
+                }}
+              >
+                <span
+                  className="absolute top-[3px] w-6 h-6 rounded-full bg-white shadow transition-all duration-200"
+                  style={{ left: done ? '25px' : '3px' }}
+                />
+              </button>
+
+              {/* 右上角编辑/删除（hover 出现，手机长按主体进编辑） */}
+              <div className="absolute top-1.5 right-1.5 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity z-10">
+                <button
+                  className="w-6 h-6 rounded-md bg-white/90 border border-slate-200 text-slate-600 hover:bg-indigo-50 hover:text-indigo-600 flex items-center justify-center text-[11px]"
+                  title="编辑"
+                  onClick={(e) => { e.stopPropagation(); onEditTemp(task.id) }}
+                >✏️</button>
+                <button
+                  className="w-6 h-6 rounded-md bg-white/90 border border-slate-200 text-slate-600 hover:bg-rose-50 hover:text-rose-600 flex items-center justify-center text-[11px]"
+                  title="删除"
+                  onClick={(e) => { e.stopPropagation(); confirmTempDelete(task) }}
+                >🗑️</button>
+              </div>
             </div>
           )
         })}
+
+        {/* 末尾常驻「＋ 新增」行（闹钟 App 同款交互） */}
+        <button
+          onClick={onCreateTemp}
+          className="w-full rounded-2xl border border-dashed border-slate-300 p-4 flex items-center gap-3 text-slate-400 hover:border-indigo-300 hover:text-indigo-500 hover:bg-indigo-50/30 touch-feedback transition-all"
+        >
+          <span className="text-[28px] leading-none font-light">＋</span>
+          <span className="text-sm font-medium">新增临时提醒</span>
+        </button>
       </div>
 
       {/* 大面积留白：简洁低压力 */}
-      <div className="mt-16 text-center text-xs text-slate-400">
+      <div className="mt-10 text-center text-xs text-slate-400">
         · 保持空白，聚焦当下 ·
       </div>
     </section>

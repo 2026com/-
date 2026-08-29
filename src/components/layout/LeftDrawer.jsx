@@ -1,4 +1,4 @@
-import React, { useMemo, useState, useRef } from 'react'
+import React, { useMemo, useState, useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAppState, useAppDispatch } from '../../context/AppContext.jsx'
 import { getSEVEN_SYSTEMS_EFFECTIVE } from '../../utils/constants.js'
@@ -48,6 +48,14 @@ export default function LeftDrawer() {
   const dispatch = useAppDispatch()
   const { drawerOpen, drawerMode } = settings
 
+  // 移动端（<768px）抽屉改为浮层覆盖（不挤压右侧内容，修复打卡界面被挤爆堆叠的问题）
+  const [isMobile, setIsMobile] = useState(() => typeof window !== 'undefined' && window.innerWidth < 768)
+  useEffect(() => {
+    const onResize = () => setIsMobile(window.innerWidth < 768)
+    window.addEventListener('resize', onResize)
+    return () => window.removeEventListener('resize', onResize)
+  }, [])
+
   // ===== 滑动返回手势：展开状态下在抽屉内「向右大幅滑动」收起 =====
   const swipeRef = useRef(null)
   const onDrawerTouchStart = (e) => {
@@ -66,15 +74,28 @@ export default function LeftDrawer() {
     }
   }
 
-  const width = !drawerOpen ? 60 : drawerMode === 'ai' ? 380 : 248
+  const width = isMobile
+    ? (drawerOpen ? 'min(78vw, 280px)' : 48)
+    : (!drawerOpen ? 60 : drawerMode === 'ai' ? 380 : 248)
 
   return (
-    <aside
-      onTouchStart={onDrawerTouchStart}
-      onTouchEnd={onDrawerTouchEnd}
-      className="drawer-transition h-full bg-white border-r border-slate-200 flex flex-col overflow-hidden z-20"
-      style={{ width }}
-    >
+    <>
+      {/* 移动端展开时的半透明遮罩（点击空白收起，抽屉为浮层不挤压内容） */}
+      {isMobile && drawerOpen && (
+        <div
+          className="absolute inset-0 bg-slate-900/25 z-20"
+          onClick={() => dispatch({ type: 'TOGGLE_DRAWER' })}
+          aria-hidden="true"
+        />
+      )}
+      <aside
+        onTouchStart={onDrawerTouchStart}
+        onTouchEnd={onDrawerTouchEnd}
+        className={`drawer-transition h-full bg-white border-r border-slate-200 flex flex-col overflow-hidden ${
+          isMobile && drawerOpen ? 'absolute inset-y-0 left-0 shadow-2xl z-30' : 'relative z-20'
+        }`}
+        style={{ width }}
+      >
       {/* 头部：标题 + 收起/展开 + 模式切换 */}
       <div className="h-12 min-h-[48px] flex items-center px-3 border-b border-slate-200 gap-2 shrink-0">
         <button
@@ -100,16 +121,17 @@ export default function LeftDrawer() {
         )}
       </div>
 
-      {/* 内容区 */}
+      {/* 内容区（收起时只显示顶部 » 按钮，用户点击即可展开完整抽屉） */}
       <div className="flex-1 overflow-y-auto no-scrollbar">
-        {drawerMode === 'nav' ? (
-          <NavContent collapsed={!drawerOpen} />
+        {drawerOpen && (drawerMode === 'nav' ? (
+          <NavContent collapsed={false} />
         ) : (
           /* 阶段1：统一使用新版真实 DeepSeek AI 面板（embedded 内嵌模式） */
-          drawerOpen && <AIChatSidebar embedded />
-        )}
+          <AIChatSidebar embedded />
+        ))}
       </div>
     </aside>
+    </>
   )
 }
 
