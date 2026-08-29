@@ -74,13 +74,51 @@ export default function LeftDrawer() {
     }
   }
 
-  // 收起：整条侧栏完全隐藏（不占屏幕宽度），只留一颗悬浮 » 按钮（点击展开）
+  // 收起：整条侧栏完全隐藏，只留一颗悬浮 » 按钮 —— 可拖动（避免挡住横线本等内容），位置记忆
+  const [fabPos, setFabPos] = useState(() => {
+    try {
+      const v = JSON.parse(localStorage.getItem('goalFabPos') || 'null')
+      if (v && typeof v.x === 'number' && typeof v.y === 'number') return v
+    } catch (e) { /* ignore */ }
+    return null // null = 默认位置（左上）
+  })
+  const fabDrag = useRef(null)
   if (!drawerOpen) {
+    const FAB = 40
+    const onFabDown = (e) => {
+      try { e.currentTarget.setPointerCapture(e.pointerId) } catch (err) { /* ignore */ }
+      const r = e.currentTarget.getBoundingClientRect()
+      fabDrag.current = { dx: e.clientX - r.left, dy: e.clientY - r.top, lx: e.clientX, ly: e.clientY, moved: false }
+    }
+    const onFabMove = (e) => {
+      const d = fabDrag.current
+      if (!d) return
+      if (!d.moved && Math.abs(e.clientX - d.lx) + Math.abs(e.clientY - d.ly) > 6) d.moved = true
+      if (!d.moved) return
+      const x = Math.min(window.innerWidth - FAB - 4, Math.max(4, e.clientX - d.dx))
+      const y = Math.min(window.innerHeight - FAB - 4, Math.max(4, e.clientY - d.dy))
+      setFabPos({ x, y })
+    }
+    const onFabUp = () => {
+      const d = fabDrag.current
+      fabDrag.current = null
+      if (!d) return
+      if (!d.moved) { dispatch({ type: 'TOGGLE_DRAWER' }); return }   // 未移动 = 点击 → 展开
+      setFabPos(p => {
+        const pos = p || { x: 6, y: 56 }
+        try { localStorage.setItem('goalFabPos', JSON.stringify(pos)) } catch (err) { /* ignore */ }
+        return pos
+      })
+    }
     return (
       <button
-        onClick={() => dispatch({ type: 'TOGGLE_DRAWER' })}
-        className="absolute left-1.5 top-14 z-20 w-9 h-9 rounded-xl bg-white/95 border border-slate-200 shadow-md text-slate-500 hover:text-indigo-600 hover:bg-indigo-50 flex items-center justify-center text-base touch-feedback"
-        title="展开菜单"
+        onPointerDown={onFabDown}
+        onPointerMove={onFabMove}
+        onPointerUp={onFabUp}
+        onPointerCancel={onFabUp}
+        className="fixed z-20 w-10 h-10 rounded-xl bg-white/95 border border-slate-200 shadow-md text-slate-500 hover:text-indigo-600 hover:bg-indigo-50 flex items-center justify-center text-base select-none"
+        style={{ left: fabPos ? fabPos.x : 6, top: fabPos ? fabPos.y : 56, touchAction: 'none' }}
+        title="拖动调整位置 · 点击展开菜单"
         aria-label="展开菜单"
       >»</button>
     )
