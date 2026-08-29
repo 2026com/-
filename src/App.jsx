@@ -7,6 +7,7 @@ import DisplayControls from './components/layout/DisplayControls.jsx'
 import CalendarDrawer from './components/layout/CalendarDrawer.jsx'
 import DashboardPanel from './components/dashboard/DashboardPanel.jsx'
 import ModalRoot from './components/common/ModalRoot.jsx'
+import TopReminderBanner from './components/widgets/TopReminderBanner.jsx'
 import TimerWidget from './components/widgets/TimerWidget.jsx'
 import StreakAlert from './components/widgets/StreakAlert.jsx'
 import ExportToolsMount from './utils/exportTools.jsx'
@@ -200,6 +201,8 @@ export default function App() {
       {/* AI 助手为独立模块，入口挂在全局左侧抽屉（LeftDrawer → modules/ai-assistant/ChatInterface） */}
       {!pureMode && <BottomTabs />}
       <ModalRoot />
+      {/* 到点提醒的顶部横幅（应用内，微信式；App 外由系统通知横幅负责） */}
+      <TopReminderBanner />
       {!pureMode && <TimerWidget />}
 
       {/* 显示控制悬浮球（仅长期目标横线本 / 3D 知识库页提供）：纯净模式、横竖屏切换、深浅色主题 */}

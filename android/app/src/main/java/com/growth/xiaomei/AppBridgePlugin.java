@@ -257,6 +257,33 @@ public class AppBridgePlugin extends Plugin {
         }
     }
 
+    /** 跳转「全屏通知」授权页（Android 14+ 熄屏到点点亮屏幕弹横幅，需要用户授予；
+     *  Android 13 及以下声明 USE_FULL_SCREEN_INTENT 即随通知权限自动授予 → 跳通知设置兜底） */
+    @PluginMethod
+    public void openFullScreenIntentSettings(PluginCall call) {
+        Activity activity = getActivity();
+        if (activity == null) { call.reject("activity unavailable"); return; }
+        try {
+            android.content.Intent i;
+            if (android.os.Build.VERSION.SDK_INT >= 34) {
+                i = new android.content.Intent(android.provider.Settings.ACTION_MANAGE_APP_USE_FULL_SCREEN_INTENT);
+                i.setData(android.net.Uri.fromParts("package", activity.getPackageName(), null));
+            } else {
+                i = new android.content.Intent(android.provider.Settings.ACTION_APP_NOTIFICATION_SETTINGS);
+                i.putExtra(android.provider.Settings.EXTRA_APP_PACKAGE, activity.getPackageName());
+            }
+            final android.content.Intent fi = i;
+            activity.runOnUiThread(new Runnable() {
+                @Override public void run() {
+                    try { activity.startActivity(fi); } catch (Throwable t) { /* ignore */ }
+                }
+            });
+            call.resolve();
+        } catch (Exception e) {
+            call.reject("跳转失败: " + e.getMessage());
+        }
+    }
+
     /** 跳转本应用系统「应用详情」页（MIUI 在此可开 自启动 / 省电策略=无限制） */
     @PluginMethod
     public void openAppDetailsSettings(PluginCall call) {

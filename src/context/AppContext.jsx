@@ -3,6 +3,7 @@ import { storage, uid, calcProgress } from '../utils/storage.js'
 import { STORAGE_KEYS, DEFAULT_SETTINGS, SEVEN_SYSTEMS, DATA_VERSION } from '../utils/constants.js'
 import { initMockData } from '../data/mockData.js'
 import { ensureNotifyPermission, notifyNow, notifyNativeNow, fireNativeDueNow, playAlertSound, initNativeNotifications, scheduleNativeNotification, cancelNativeNotification } from '../utils/notify.js'
+import { showTopReminder } from '../components/widgets/TopReminderBanner.jsx'
 import { bootInitialState, readAllState } from './appStorage.js'
 import { dailyTasksReducer } from './reducers/dailyTasksReducer.js'
 import { reviewReducer } from './reducers/reviewReducer.js'
@@ -556,7 +557,9 @@ export function AppProvider({ children }) {
         const message = item.kind === 'node'
           ? `任务「${item.title || '未命名节点'}」到达设定时间：${formatReminderTime(item.isoTime)}，请及时开始或延后。`
           : `「${item.title || '未命名任务'}」到了提醒时间 ${item.hm}，记得完成打卡哦。`
-        dispatch({ type: 'PUSH_MODAL', payload: { type: 'alert', title, message } })
+        // 应用内可见性：改为「顶部横幅」（微信式，6 秒自动消失），不再是居中大弹窗；
+        // App 外的可见性由下方 toFire 的系统通知（横幅/全屏意图）负责，内外体验一致。
+        showTopReminder(title, message)
         toFire.push({ title, message })
       })
       // 微信式前台提示音：与通知渠道/闹钟/权限完全解耦，App 在前台时直接播放（必响）。

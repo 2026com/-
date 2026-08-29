@@ -7,7 +7,7 @@ import WheelTimePicker from './habits/WheelTimePicker.jsx'
 import BatchCheckinModal from './habits/BatchCheckinModal.jsx'
 import PomodoroModal from './habits/PomodoroModal.jsx'
 import { pushBackHandler } from '../../../utils/backStack.js'
-import { openNotificationSettings, openAppDetailsSettings } from '../../../services/device.js'
+import { openNotificationSettings, openAppDetailsSettings, openFullScreenIntentSettings } from '../../../services/device.js'
 
 /**
  * 双页打卡真实交互版
@@ -313,14 +313,18 @@ function ReminderSetupBanner() {
       </div>
       <div className="mt-1.5 space-y-1.5 leading-relaxed">
         <div className="flex items-center">
-          <span>① 通知设置：打开「成长提醒」渠道的 悬浮通知 / 锁屏通知 / 声音</span>
+          <span>① 通知设置 → 点「成长提醒」渠道：悬浮通知 / 锁屏通知 / 声音 全开（顶部弹横幅的关键）</span>
           <button onClick={() => openNotificationSettings()} className={jumpBtn}>去开启 ›</button>
         </div>
         <div className="flex items-center">
-          <span>② 自启动=允许、省电策略=无限制（守护服务熄屏不死的生命线）</span>
+          <span>② 全屏通知 = 允许（熄屏到点点亮屏幕弹出横幅）</span>
+          <button onClick={() => openFullScreenIntentSettings()} className={jumpBtn}>去开启 ›</button>
+        </div>
+        <div className="flex items-center">
+          <span>③ 自启动 = 允许、省电策略 = 无限制（后台到点不被系统杀）</span>
           <button onClick={() => openAppDetailsSettings()} className={jumpBtn}>去开启 ›</button>
         </div>
-        <div className="text-amber-700">③ 电池优化白名单已在首次启动自动弹窗申请；若当时点了拒绝，可在②的应用详情里改「省电策略」</div>
+        <div className="text-amber-700">④ 电池优化白名单已在首次启动自动申请；若点了拒绝，可在③的应用详情里改「省电策略」</div>
       </div>
     </div>
   )

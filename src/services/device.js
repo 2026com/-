@@ -61,3 +61,14 @@ export async function openAppDetailsSettings() {
     return false
   }
 }
+
+/** 跳转「全屏通知」授权页（Android 14+ 熄屏到点点亮屏幕弹横幅需要用户授权） */
+export async function openFullScreenIntentSettings() {
+  try {
+    await AppBridge.openFullScreenIntentSettings()
+    return true
+  } catch (e) {
+    console.warn('[device] 打开全屏通知设置失败:', e && e.message)
+    return false
+  }
+}
