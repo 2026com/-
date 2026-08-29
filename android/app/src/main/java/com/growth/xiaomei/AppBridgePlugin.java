@@ -160,6 +160,46 @@ public class AppBridgePlugin extends Plugin {
         }
     }
 
+    /** 微信式前台提示音：直接播放系统默认通知音。
+     *  与通知系统完全解耦（不走渠道/不需要通知权限/不受闹钟管控），前台到点必响。
+     *  优先 Ringtone（真实通知音，跟随通知音量），失败降级 ToneGenerator 蜂鸣。 */
+    @PluginMethod
+    public void playAlertSound(PluginCall call) {
+        try {
+            android.media.Ringtone rt = null;
+            try {
+                android.net.Uri uri = android.media.RingtoneManager
+                        .getDefaultUri(android.media.RingtoneManager.TYPE_NOTIFICATION);
+                if (uri != null) {
+                    rt = android.media.RingtoneManager.getRingtone(getContext(), uri);
+                }
+            } catch (Throwable t) { /* 降级 ToneGenerator */ }
+            if (rt != null) {
+                rt.play(); // 异步播放；一次性实例，播完由系统回收
+                call.resolve();
+                return;
+            }
+            // 兜底：ToneGenerator 蜂鸣（无需任何音频资源/权限）
+            final android.media.ToneGenerator tg = new android.media.ToneGenerator(
+                    android.media.AudioManager.STREAM_NOTIFICATION, 100);
+            new Thread(new Runnable() {
+                @Override
+                public void run() {
+                    try {
+                        tg.startTone(android.media.ToneGenerator.TONE_PROP_BEEP2, 300);
+                        Thread.sleep(400);
+                    } catch (Throwable ignored) {
+                    } finally {
+                        try { tg.release(); } catch (Throwable ignored) {}
+                    }
+                }
+            }).start();
+            call.resolve();
+        } catch (Exception e) {
+            call.reject("播放失败: " + e.getMessage());
+        }
+    }
+
     /** 诊断：列出系统通知渠道 + 关键权限状态 → {channels[], detail[], hasRingtone, hasFallback, exactAlarm, notificationsEnabled} */
     @PluginMethod
     public void listNotificationChannels(PluginCall call) {

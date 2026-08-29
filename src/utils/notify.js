@@ -198,6 +198,34 @@ export async function fireNativeDueNow() {
     return false
   }
 }
+
+/** 微信式到点提示音（模仿微信/QQ 前台消息"叮"声）：
+ *  与通知渠道/闹钟/权限完全解耦，App 在前台时直接播放，必响（音量跟随系统通知音量）。
+ *  - APK：原生播系统默认通知音（Ringtone，失败降级蜂鸣）；
+ *  - PWA：WebAudio 现场合成短提示音（无需音频文件）。 */
+export async function playAlertSound() {
+  if (isCapacitor()) {
+    try { await withNativeTimeout(AppBridge.playAlertSound(), 4000) } catch (e) { /* 静默失败 */ }
+    return
+  }
+  try {
+    const AC = window.AudioContext || window.webkitAudioContext
+    if (!AC) return
+    const ctx = new AC()
+    const osc = ctx.createOscillator()
+    const gain = ctx.createGain()
+    osc.type = 'sine'
+    osc.frequency.value = 880
+    gain.gain.setValueAtTime(0.001, ctx.currentTime)
+    gain.gain.exponentialRampToValueAtTime(0.3, ctx.currentTime + 0.02)
+    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.5)
+    osc.connect(gain)
+    gain.connect(ctx.destination)
+    osc.start()
+    osc.stop(ctx.currentTime + 0.5)
+    setTimeout(() => { try { ctx.close() } catch (e) { /* ignore */ } }, 800)
+  } catch (e) { /* ignore */ }
+}
 /**
  * 发送系统通知。
  * - 原生：调度 1 秒后的系统通知（锁屏/后台/被杀后已调度的也能弹）。
@@ -265,9 +293,9 @@ export async function notifyNow(title, body) {
  * 哪一层被 ROM 拦截；渠道/查询失败均不中断，原生侧有多级兜底。
  */
 export async function reminderSelfTest() {
-  const lines = []
+  const lines = ['📌 自检版本 V4（若无此行 = 手机上跑的不是最新 APK，请重新安装）']
   if (!isCapacitor()) {
-    return ['当前为浏览器（PWA）环境：提醒依赖页面保持打开，无法像 APK 一样离线提醒。']
+    return ['当前为浏览器（PWA）环境：提醒依赖页面保持打开，无法像 APK 一样离线提醒。', ...lines]
   }
   // 单步计时包装：超时/失败都带步骤名抛出；hint 允许非致命步骤自定义提示
   const step = async (name, fn, ms, hint = '病根在这一步，请截图回复我') => {
@@ -340,6 +368,14 @@ export async function reminderSelfTest() {
       : '   ⚠ 调用成功但通知未进入系统通知栏 = 系统拦截了本 App 的通知展示，请截图回复我')
   } catch (e) {
     lines.push('   ✗ 立即通知也挂起 = 通知渲染被 ROM 拦截，请截图回复我')
+  }
+
+  // 步骤4a+：微信式前台提示音试听（与通知系统解耦，前台到点必响的保底路径）
+  try {
+    await playAlertSound()
+    lines.push('   ♪ 刚才同时播了「前台提示音」（微信式）。若没听到：检查手机通知音量/是否勿扰静音')
+  } catch (e) {
+    lines.push('   ⚠ 前台提示音播放失败（罕见，请截图回复我）')
   }
 
   // 步骤4b：调度一条 3 秒后的定时通知（原生异步执行 + 守护服务到点兜底）

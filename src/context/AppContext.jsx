@@ -2,7 +2,7 @@ import React, { createContext, useContext, useReducer, useEffect, useRef } from 
 import { storage, uid, calcProgress } from '../utils/storage.js'
 import { STORAGE_KEYS, DEFAULT_SETTINGS, SEVEN_SYSTEMS, DATA_VERSION } from '../utils/constants.js'
 import { initMockData } from '../data/mockData.js'
-import { ensureNotifyPermission, notifyNow, notifyNativeNow, fireNativeDueNow, initNativeNotifications, scheduleNativeNotification, cancelNativeNotification } from '../utils/notify.js'
+import { ensureNotifyPermission, notifyNow, notifyNativeNow, fireNativeDueNow, playAlertSound, initNativeNotifications, scheduleNativeNotification, cancelNativeNotification } from '../utils/notify.js'
 import { bootInitialState, readAllState } from './appStorage.js'
 import { dailyTasksReducer } from './reducers/dailyTasksReducer.js'
 import { reviewReducer } from './reducers/reviewReducer.js'
@@ -559,6 +559,9 @@ export function AppProvider({ children }) {
         dispatch({ type: 'PUSH_MODAL', payload: { type: 'alert', title, message } })
         toFire.push({ title, message })
       })
+      // 微信式前台提示音：与通知渠道/闹钟/权限完全解耦，App 在前台时直接播放（必响）。
+      // 这就是微信/QQ 收到消息那声"叮"的实现方式——不依赖系统放行。
+      playAlertSound()
       if (isCapRun()) {
         const fired = await fireNativeDueNow()
         if (!fired) toFire.forEach(x => notifyNativeNow(x.title, x.message))
