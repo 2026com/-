@@ -168,10 +168,14 @@ public final class NotificationScheduler {
         b.setContentTitle(title)
          .setContentText(body)
          .setStyle(new Notification.BigTextStyle().bigText(body))
-         .setCategory(Notification.CATEGORY_REMINDER)
+         .setCategory(Notification.CATEGORY_ALARM)
+         .setVisibility(Notification.VISIBILITY_PUBLIC)
          .setAutoCancel(true)
          .setSmallIcon(R.mipmap.ic_launcher)
          .setContentIntent(contentPendingIntent(ctx, id));
+        // 全屏弹出意图：熄屏/锁屏到点尝试点亮屏幕并横幅/全屏展示（系统授予「全屏通知」权限时生效；
+        // 未授予时自动降级为普通横幅——MIUI 需在通知设置里开「悬浮通知」，App 内有一次性引导卡）
+        try { b.setFullScreenIntent(contentPendingIntent(ctx, id), true); } catch (Throwable t) { /* ignore */ }
         return b.build();
     }
 

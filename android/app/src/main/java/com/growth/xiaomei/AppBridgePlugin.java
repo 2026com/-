@@ -238,6 +238,44 @@ public class AppBridgePlugin extends Plugin {
         }
     }
 
+    /** 跳转本应用系统「通知设置」页（悬浮通知/锁屏通知/声音，仅需设置一次） */
+    @PluginMethod
+    public void openNotificationSettings(PluginCall call) {
+        Activity activity = getActivity();
+        if (activity == null) { call.reject("activity unavailable"); return; }
+        try {
+            final android.content.Intent i = new android.content.Intent(android.provider.Settings.ACTION_APP_NOTIFICATION_SETTINGS);
+            i.putExtra(android.provider.Settings.EXTRA_APP_PACKAGE, activity.getPackageName());
+            activity.runOnUiThread(new Runnable() {
+                @Override public void run() {
+                    try { activity.startActivity(i); } catch (Throwable t) { /* ignore */ }
+                }
+            });
+            call.resolve();
+        } catch (Exception e) {
+            call.reject("跳转失败: " + e.getMessage());
+        }
+    }
+
+    /** 跳转本应用系统「应用详情」页（MIUI 在此可开 自启动 / 省电策略=无限制） */
+    @PluginMethod
+    public void openAppDetailsSettings(PluginCall call) {
+        Activity activity = getActivity();
+        if (activity == null) { call.reject("activity unavailable"); return; }
+        try {
+            final android.content.Intent i = new android.content.Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS);
+            i.setData(android.net.Uri.fromParts("package", activity.getPackageName(), null));
+            activity.runOnUiThread(new Runnable() {
+                @Override public void run() {
+                    try { activity.startActivity(i); } catch (Throwable t) { /* ignore */ }
+                }
+            });
+            call.resolve();
+        } catch (Exception e) {
+            call.reject("跳转失败: " + e.getMessage());
+        }
+    }
+
     /** 退出应用：返回键「2 秒内双击」由前端判定后调用（finishAffinity 结束全部任务栈） */
     @PluginMethod
     public void exitApp(PluginCall call) {

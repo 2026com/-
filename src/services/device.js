@@ -40,22 +40,24 @@ export function isLandscapeNow() {
   }
 }
 
-/** 是否已在电池优化白名单（null = 环境/插件不支持） */
-export async function isIgnoringBatteryOptimizations() {
+/** 跳转系统「应用通知设置」页（悬浮通知 / 锁屏通知 / 声音，仅需设置一次） */
+export async function openNotificationSettings() {
   try {
-    const r = await AppBridge.isIgnoringBatteryOptimizations()
-    return !!r.ignored
-  } catch {
-    return null
+    await AppBridge.openNotificationSettings()
+    return true
+  } catch (e) {
+    console.warn('[device] 打开通知设置失败:', e && e.message)
+    return false
   }
 }
 
-/** 请求加入电池优化白名单（拉起系统弹窗）。返回 'already' | 'launched' | null */
-export async function requestIgnoreBatteryOptimization() {
+/** 跳转系统「应用详情」页（MIUI 在此可开 自启动 / 省电策略=无限制） */
+export async function openAppDetailsSettings() {
   try {
-    const r = await AppBridge.requestIgnoreBatteryOptimizations()
-    return (r && r.status) || null
-  } catch {
-    return null
+    await AppBridge.openAppDetailsSettings()
+    return true
+  } catch (e) {
+    console.warn('[device] 打开应用详情失败:', e && e.message)
+    return false
   }
 }

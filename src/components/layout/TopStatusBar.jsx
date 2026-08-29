@@ -3,9 +3,6 @@ import { useAppState, useAppDispatch } from '../../context/AppContext.jsx'
 import { useMemo } from 'react'
 import { dateUtil } from '../../utils/storage.js'
 import { useAppTheme, toggleTheme } from '../../services/theme.js'
-import { reminderSelfTest } from '../../utils/notify.js'
-import { isIgnoringBatteryOptimizations, requestIgnoreBatteryOptimization } from '../../services/device.js'
-import { pushBackHandler } from '../../utils/backStack.js'
 
 /**
  * 顶部状态栏 V2（手机端适配）
@@ -46,28 +43,6 @@ export default function TopStatusBar() {
   const dispatch = useAppDispatch()
   const { activeTab } = state.ui
   const theme = useAppTheme()
-
-  // ===== 提醒自检（自包含浮层：点击立即反馈，不依赖 ModalRoot）=====
-  const [selfTest, setSelfTest] = useState(null) // null | {loading:true} | {lines:[...]} | {error:'...'}
-  // 返回键关闭自检浮层（后开先关，注册全局返回栈）
-  useEffect(() => {
-    if (!selfTest) return undefined
-    return pushBackHandler(() => setSelfTest(null))
-  }, [selfTest])
-  const runSelfTest = async () => {
-    console.log('[selftest] clicked')
-    setSelfTest({ loading: true })
-    try {
-      const withTimeout = (p, ms) => Promise.race([
-        p,
-        new Promise((_, rej) => setTimeout(() => rej(new Error('自检总耗时过长（有步骤卡住，结果会标出卡点）')), ms)),
-      ])
-      const lines = await withTimeout(reminderSelfTest(), 45000)
-      setSelfTest({ lines })
-    } catch (e) {
-      setSelfTest({ error: String((e && e.message) || e) })
-    }
-  }
 
   // ===== V2：安全区顶部补偿（CSS env 失效时 JS 兜底）=====
   const [safeTop, setSafeTop] = useState(() => detectSafeTop())
@@ -150,36 +125,6 @@ export default function TopStatusBar() {
           {theme === 'dark' ? '☀️ 浅色' : '🌙 深色'}
         </button>
         <button
-          onClick={runSelfTest}
-          title="一键诊断：通知权限 / 渠道 / 调度，并 3 秒后发出测试通知"
-          className="px-3 py-1.5 text-xs rounded-md bg-white/10 hover:bg-white/20 touch-feedback transition-colors"
-        >
-          🔔 自检
-        </button>
-        <button
-          onClick={async () => {
-            try {
-              const ignored = await isIgnoringBatteryOptimizations()
-              if (ignored === true) {
-                dispatch({ type: 'PUSH_MODAL', payload: { type: 'toast', message: '✅ 已在电池优化白名单中，提醒可准时响铃' } })
-                return
-              }
-              const s = await requestIgnoreBatteryOptimization()
-              if (s === 'launched') {
-                dispatch({ type: 'PUSH_MODAL', payload: { type: 'toast', message: '🔋 请在系统弹窗中点「允许」，锁屏/杀进程后提醒也能准时响铃' } })
-              } else if (s === 'already') {
-                dispatch({ type: 'PUSH_MODAL', payload: { type: 'toast', message: '✅ 已在电池优化白名单中' } })
-              } else {
-                dispatch({ type: 'PUSH_MODAL', payload: { type: 'toast', message: '⚠️ 当前环境不支持该项设置' } })
-              }
-            } catch { /* ignore */ }
-          }}
-          title="提醒保活：加入电池优化白名单（各品牌通用），确保锁屏/杀进程后提醒准时响铃"
-          className="px-3 py-1.5 text-xs rounded-md bg-white/10 hover:bg-white/20 touch-feedback transition-colors"
-        >
-          🔋 保活
-        </button>
-        <button
           onClick={() => dispatch({ type: 'TOGGLE_CALENDAR' })}
           className={`px-3 py-1.5 text-xs rounded-md touch-feedback transition-colors ${state.ui.calendarOpen ? 'bg-yellow-400 text-slate-900 font-semibold' : 'bg-white/10 hover:bg-white/20'}`}
         >
@@ -194,40 +139,6 @@ export default function TopStatusBar() {
           </button>
         )}
 
-        {/* 提醒自检浮层（自包含：点击立即显示，15s 超时保护，异常可视化） */}
-        {selfTest && (
-          <div
-            className="fixed inset-0 z-[70] flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-sm"
-            onClick={() => setSelfTest(null)}
-          >
-            <div
-              className="relative w-full max-w-sm bg-white rounded-2xl shadow-2xl border border-slate-200 p-5"
-              onClick={(e) => e.stopPropagation()}
-            >
-              <div className="flex items-center justify-between mb-3">
-                <div className="text-base font-bold text-slate-800">🔔 提醒链路自检</div>
-                <button
-                  onClick={() => setSelfTest(null)}
-                  className="w-7 h-7 rounded-lg hover:bg-slate-100 text-slate-400 flex items-center justify-center text-sm"
-                >✕</button>
-              </div>
-              {selfTest.loading && (
-                <div className="text-sm text-slate-500 flex items-center justify-center gap-2 py-6">
-                  <span className="w-4 h-4 rounded-full border-2 border-indigo-300 border-t-indigo-500 animate-spin" />
-                  正在逐项检测（权限 / 渠道 / 调度）…
-                </div>
-              )}
-              {selfTest.error && (
-                <div className="text-sm text-rose-600 bg-rose-50 rounded-xl p-3 leading-relaxed break-words">
-                  ❌ {selfTest.error}
-                </div>
-              )}
-              {selfTest.lines && (
-                <div className="text-sm text-slate-700 leading-relaxed whitespace-pre-wrap">{selfTest.lines.join('\n')}</div>
-              )}
-            </div>
-          </div>
-        )}
       </div>
     </header>
   )

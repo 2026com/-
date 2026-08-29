@@ -15,5 +15,9 @@ public class BootReceiver extends BroadcastReceiver {
         try {
             NotificationScheduler.restoreAll(context);
         } catch (Exception e) { /* ignore */ }
+        // 重启后同时拉起守护服务（熄屏兜底扫描与闹钟恢复双保险，幂等）
+        try {
+            ReminderGuardService.ensureRunning(context);
+        } catch (Exception e) { /* ignore */ }
     }
 }
