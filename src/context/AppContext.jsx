@@ -2,7 +2,7 @@ import React, { createContext, useContext, useReducer, useEffect, useRef } from 
 import { storage, uid, calcProgress } from '../utils/storage.js'
 import { STORAGE_KEYS, DEFAULT_SETTINGS, SEVEN_SYSTEMS, DATA_VERSION } from '../utils/constants.js'
 import { initMockData } from '../data/mockData.js'
-import { ensureNotifyPermission, notifyNow, initNativeNotifications, scheduleNativeNotification, cancelNativeNotification } from '../utils/notify.js'
+import { ensureNotifyPermission, notifyNow, notifyNativeNow, fireNativeDueNow, initNativeNotifications, scheduleNativeNotification, cancelNativeNotification } from '../utils/notify.js'
 import { bootInitialState, readAllState } from './appStorage.js'
 import { dailyTasksReducer } from './reducers/dailyTasksReducer.js'
 import { reviewReducer } from './reducers/reviewReducer.js'
@@ -495,7 +495,7 @@ export function AppProvider({ children }) {
       } catch (e) { /* 原生同步失败静默（网页环境会因 isCapRun 提前返回） */ }
       finally { nativeSyncing = false }
     }
-    const checkDue = () => {
+    const checkDue = async () => {
       const now = Date.now()
       const s = stateRef.current
       if (!s) return
@@ -544,15 +544,27 @@ export function AppProvider({ children }) {
           dispatch({ type: 'UPDATE_TEMP_TASK', id: item.id, payload: { _notifiedDate: todayStr } })
         }
       })
-      // 页面内弹提醒 + 系统通知（页面在后台时 notifyNow 才会真正弹出系统通知）
+      // 页面内弹提醒；系统通知的声音路径分环境：
+      // - APK：立即触发原生到期扫描（弹出 pending 中「已到期且闹钟未触发过」的条目，防双响）；
+      //   原生扫描失败再降级为直弹通知（同一渠道，实测有声）。
+      //   [修复] 此前走 notifyNow（1 秒后闹钟路径），K60 上 setAlarmClock 被 ROM 吞 →
+      //   到点只有应用内弹窗、系统通知永远不来（无声）。
+      // - PWA：页面不可见/未聚焦时弹浏览器系统通知。
+      const toFire = []
       toMark.forEach(item => {
         const title = item.kind === 'node' ? '🔔 节点闹钟提醒' : '🔔 打卡提醒'
         const message = item.kind === 'node'
           ? `任务「${item.title || '未命名节点'}」到达设定时间：${formatReminderTime(item.isoTime)}，请及时开始或延后。`
           : `「${item.title || '未命名任务'}」到了提醒时间 ${item.hm}，记得完成打卡哦。`
         dispatch({ type: 'PUSH_MODAL', payload: { type: 'alert', title, message } })
-        notifyNow(title, message)
+        toFire.push({ title, message })
       })
+      if (isCapRun()) {
+        const fired = await fireNativeDueNow()
+        if (!fired) toFire.forEach(x => notifyNativeNow(x.title, x.message))
+      } else {
+        toFire.forEach(x => notifyNow(x.title, x.message))
+      }
       // 原生壳（APK）：把未来提醒同步注册到 Android 系统时钟（锁屏/杀进程可靠触发）
       syncNativeReminders()
     }

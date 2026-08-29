@@ -61,7 +61,21 @@ public final class NotificationScheduler {
         try {
             AlarmManager.AlarmClockInfo info = new AlarmManager.AlarmClockInfo(atMs, contentPendingIntent(ctx, id));
             am.setAlarmClock(info, pi);
-            setLastAlarmResult(ctx, "alarm_clock");
+            // 回读验证：部分 ROM（K60 实测）会「接受调用但不登记」——状态栏无闹钟图标、到点不响。
+            // 用系统下一次闹钟回读区分「真设上」与「被静默吞掉」，供自检界面展示。
+            try {
+                AlarmManager.AlarmClockInfo cur = am.getNextAlarmClock();
+                if (cur == null) {
+                    setLastAlarmResult(ctx, "alarm_clock未登记(ROM未接受)");
+                } else if (cur.getTriggerTime() == atMs) {
+                    setLastAlarmResult(ctx, "alarm_clock");
+                } else {
+                    // 系统登记了更早的另一枚闹钟（如其他闹钟App），本条无法确认，按已接受处理
+                    setLastAlarmResult(ctx, "alarm_clock(系统登记了更早的其他闹钟)");
+                }
+            } catch (Throwable t) {
+                setLastAlarmResult(ctx, "alarm_clock"); // 回读挂起/失败不影响「已设上」假设
+            }
             return;
         } catch (Throwable e) {
             setLastAlarmResult(ctx, "alarm_clock失败:" + e.getClass().getSimpleName());

@@ -147,6 +147,19 @@ public class AppBridgePlugin extends Plugin {
         }
     }
 
+    /** 立即扫描原生 pending 列表，弹出所有「已到期且未被闹钟触发过」的提醒（JS 到点兜底）。
+     *  闹钟已触发过的条目已被移出 pending → 自动跳过（防双响）；
+     *  闹钟被 ROM 吞掉/未设上的条目 → 立即补弹（走已实测有声的直弹路径）。 */
+    @PluginMethod
+    public void fireDueNow(PluginCall call) {
+        try {
+            NotificationScheduler.fireIfDue(getContext(), System.currentTimeMillis());
+            call.resolve();
+        } catch (Exception e) {
+            call.reject("扫描失败: " + e.getMessage());
+        }
+    }
+
     /** 诊断：列出系统通知渠道 + 关键权限状态 → {channels[], detail[], hasRingtone, hasFallback, exactAlarm, notificationsEnabled} */
     @PluginMethod
     public void listNotificationChannels(PluginCall call) {

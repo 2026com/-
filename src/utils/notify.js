@@ -183,6 +183,21 @@ export async function notifyNativeNow(title, body) {
     return false
   }
 }
+
+/** [到点兜底] 立即触发原生侧到期扫描：弹出 pending 列表中「已到期且闹钟未触发过」的提醒。
+ *  闹钟已触发过的条目已被移出 pending → 自动跳过（防双响）；
+ *  闹钟被 ROM 吞掉/未设上的 → 立即补弹（走已实测有声的直弹路径）。
+ *  返回 false = 原生扫描不可用，调用方需自行降级为直弹通知。 */
+export async function fireNativeDueNow() {
+  if (!isCapacitor()) return false
+  try {
+    await withNativeTimeout(AppBridge.fireDueNow(), 5000)
+    return true
+  } catch (e) {
+    console.warn('[notify] fireDueNow 失败:', e?.message)
+    return false
+  }
+}
 /**
  * 发送系统通知。
  * - 原生：调度 1 秒后的系统通知（锁屏/后台/被杀后已调度的也能弹）。
@@ -194,7 +209,9 @@ export async function notifyNativeNow(title, body) {
  */
 export async function notifyNow(title, body) {
   if (isCapacitor()) {
-    await scheduleNativeNotification({ id: 'immediate-' + (Date.now() % 1000000) + '-' + (++_counter), title, body, at: Date.now() + 1000 })
+    // [修复] K60 实测：走「1 秒后闹钟」的立即通知到点不弹（setAlarmClock 被 ROM 静默吞掉），
+    // 表现为「应用内弹窗有、系统通知无声」。改为自建桥直弹（与自检 4a 同路径，实测有声）。
+    await notifyNativeNow(title, body)
     return
   }
   try {
@@ -333,11 +350,31 @@ export async function reminderSelfTest() {
       body: '看到此条 = 定时提醒链路正常（锁屏/杀进程也能到）',
       at: Date.now() + 3000,
     }), 8000)
-    await new Promise(r => setTimeout(r, 2000)) // 等后台线程完成闹钟武装
+    await new Promise(r => setTimeout(r, 3000)) // 等后台线程完成闹钟武装
+    // [修复] 必须重新查询原生诊断：步骤3 缓存的是调度前的旧快照，直接读旧值会
+    // 永远看不到「闹钟武装结果」一行（首调时缓存值恒为"尚未执行过调度"）。
+    try {
+      const fresh = await withNativeTimeout(AppBridge.listNotificationChannels(), 5000)
+      if (fresh) {
+        _channelState = {
+          hasNotify: !!fresh.hasNotify,
+          exactAlarm: fresh.exactAlarm !== false,
+          notificationsEnabled: fresh.notificationsEnabled !== false,
+          detail: (fresh && fresh.detail) || [],
+          lastAlarmResult: (fresh && fresh.lastAlarmResult) || '',
+        }
+        if (fresh.hasNotify) _activeChannel = 'growth_notify'
+      }
+    } catch (e) { /* 刷新失败沿用步骤3的旧值 */ }
     const lar = (_channelState && _channelState.lastAlarmResult) || ''
-    if (lar && lar !== '尚未执行过调度') {
-      const map = { alarm_clock: '✓ 用户级闹钟（最强，杀进程也触发）', exact: '✓ 精确闹钟', inexact: '⚠ 仅非精确闹钟（可能延迟）' }
-      lines.push(`   闹钟武装结果：${map[lar] || ('✗ 全部被 ROM 拦截（' + lar + '）→ 进程被杀后只能靠守护服务')}`)
+    if (!lar || lar === '尚未执行过调度') {
+      lines.push('   ⚠ 闹钟武装无结果（后台线程未返回，可稍后重跑自检）')
+    } else {
+      const verdict = lar === 'alarm_clock' ? '✓ 用户级闹钟（最强，杀进程也触发）'
+        : lar === 'exact' ? '✓ 精确闹钟'
+        : lar === 'inexact' ? '⚠ 仅非精确闹钟（可能延迟几分钟）'
+        : `✗ ${lar} → 闹钟被 ROM 拦截，进程被杀后只能靠守护服务/锁定卡片`
+      lines.push(`   闹钟武装结果：${verdict}`)
     }
     lines.push('   ✓ 已提交调度（原生后台执行）→ 3~18 秒内应弹出「定时」通知')
   } catch (e) {
