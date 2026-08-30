@@ -3,6 +3,10 @@ import { useAppState, useAppDispatch } from '../../context/AppContext.jsx'
 import { useMemo } from 'react'
 import { dateUtil } from '../../utils/storage.js'
 import { useAppTheme, toggleTheme } from '../../services/theme.js'
+import { getReminderStatus, openChannelSettings, openFullScreenIntentSettings, openAppDetailsSettings } from '../../services/device.js'
+import { notifyNativeNow } from '../../utils/notify.js'
+import { pushBackHandler } from '../../utils/backStack.js'
+import { BUILD_TAG } from '../../buildInfo.js'
 
 /**
  * 顶部状态栏 V2（手机端适配）
@@ -59,6 +63,46 @@ export default function TopStatusBar() {
   useEffect(() => {
     document.documentElement.style.setProperty('--safe-top-js', `${safeTop}px`)
   }, [safeTop])
+
+  // ===== 提醒链路状态（顶栏🔔）：挂载/回前台刷新；面板打开时注册返回键关闭 =====
+  const [remPanel, setRemPanel] = useState(false)
+  const [remSt, setRemSt] = useState(null)
+  const [testing, setTesting] = useState(false)
+  useEffect(() => {
+    let alive = true
+    const refresh = () => { getReminderStatus().then((s) => { if (alive && s) setRemSt(s) }) }
+    refresh()
+    const onVis = () => { if (document.visibilityState === 'visible') refresh() }
+    document.addEventListener('visibilitychange', onVis)
+    window.addEventListener('focus', onVis)
+    return () => {
+      alive = false
+      document.removeEventListener('visibilitychange', onVis)
+      window.removeEventListener('focus', onVis)
+    }
+  }, [])
+  useEffect(() => {
+    if (!remPanel) return undefined
+    return pushBackHandler(() => setRemPanel(false))
+  }, [remPanel])
+  const remOk = !!remSt && remSt.notificationsEnabled && remSt.fsiGranted && remSt.batteryIgnored && remSt.guardRunning
+  const testBanner = async () => {
+    setTesting(true)
+    try { await notifyNativeNow('🔔 测试横幅', '看到这条从顶部弹出 = App 外提醒通道畅通 ✅') } catch (e) { /* ignore */ }
+    setTimeout(() => setTesting(false), 2000)
+  }
+  const cleanReload = () => {
+    try {
+      if (navigator.serviceWorker && navigator.serviceWorker.getRegistrations) {
+        navigator.serviceWorker.getRegistrations().then((rs) => rs.forEach((r) => r.unregister())).catch(() => {})
+      }
+      if (window.caches && caches.keys) {
+        caches.keys().then((ks) => ks.forEach((k) => caches.delete(k))).catch(() => {})
+      }
+    } catch (e) { /* ignore */ }
+    setTimeout(() => window.location.reload(), 300)
+  }
+  const rmark = (ok) => (remSt ? (ok ? '✅' : '❌') : '…')
 
   const stats = useMemo(() => {
     // ===== 有效工作时间：真实计时记录汇总（分钟 → 小时） =====
@@ -118,6 +162,14 @@ export default function TopStatusBar() {
       {/* 右侧：功能按钮 */}
       <div className="flex items-center gap-2">
         <button
+          onClick={() => setRemPanel(true)}
+          className="relative px-2.5 py-1.5 text-xs rounded-md bg-white/10 hover:bg-white/20 touch-feedback transition-colors"
+          title="提醒状态 / 测试横幅"
+        >
+          🔔
+          <span className={`absolute top-1 right-1 w-1.5 h-1.5 rounded-full ${remOk ? 'bg-emerald-400' : 'bg-rose-400'}`} />
+        </button>
+        <button
           onClick={() => toggleTheme()}
           title={theme === 'dark' ? '切换为浅色模式' : '切换为深色模式'}
           className="px-3 py-1.5 text-xs rounded-md bg-white/10 hover:bg-white/20 touch-feedback transition-colors"
@@ -139,6 +191,41 @@ export default function TopStatusBar() {
           </button>
         )}
 
+        {/* 提醒状态面板（顶栏🔔，所有页面可开） */}
+        {remPanel && (
+          <div className="fixed inset-0 z-[70] flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-sm" onClick={() => setRemPanel(false)}>
+            <div className="relative w-full max-w-sm bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-700 p-5" onClick={(e) => e.stopPropagation()}>
+              <div className="flex items-center justify-between mb-3">
+                <div className="text-base font-bold text-slate-800 dark:text-slate-100">🔔 提醒状态 <span className="text-[10px] text-slate-400 font-normal">{BUILD_TAG}</span></div>
+                <button onClick={() => setRemPanel(false)} className="w-7 h-7 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-400 flex items-center justify-center text-sm">✕</button>
+              </div>
+              <div className="space-y-2 text-sm text-slate-700 dark:text-slate-200">
+                <div className="flex items-center justify-between gap-2">
+                  <span>{rmark(remSt ? remSt.notificationsEnabled : false)} 渠道「悬浮/锁屏/声音」</span>
+                  <button onClick={() => openChannelSettings()} className="px-2 py-1 rounded-lg text-xs bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 touch-feedback">去开启 ›</button>
+                </div>
+                <div className="flex items-center justify-between gap-2">
+                  <span>{rmark(remSt ? remSt.fsiGranted : false)} 全屏通知（熄屏点亮弹出）</span>
+                  <button onClick={() => openFullScreenIntentSettings()} className="px-2 py-1 rounded-lg text-xs bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 touch-feedback">去开启 ›</button>
+                </div>
+                <div className="flex items-center justify-between gap-2">
+                  <span>{rmark(remSt ? remSt.batteryIgnored : false)} 自启动 / 省电策略</span>
+                  <button onClick={() => openAppDetailsSettings()} className="px-2 py-1 rounded-lg text-xs bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 touch-feedback">去开启 ›</button>
+                </div>
+                <div className="flex items-center justify-between gap-2">
+                  <span>{rmark(remSt ? remSt.guardRunning : false)} 守护服务{remSt && remSt.guardRunning ? `（待触发 ${remSt.pendingCount >= 0 ? remSt.pendingCount : '?'} 条）` : ''}</span>
+                </div>
+              </div>
+              <div className="mt-4 flex gap-2">
+                <button onClick={testBanner} className="flex-1 px-3 py-2 rounded-lg text-xs font-semibold bg-indigo-600 hover:bg-indigo-500 text-white touch-feedback">{testing ? '已发送…' : '📢 测试横幅'}</button>
+                <button onClick={cleanReload} className="px-3 py-2 rounded-lg text-xs bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 touch-feedback" title="反注册SW+清缓存后重载（排查旧包残留）">🧹 清缓存重载</button>
+              </div>
+              <div className="mt-2 text-[11px] text-slate-400 leading-relaxed">
+                「悬浮通知」是 MIUI 手动开关：点📢测试若不弹横幅，回第①项把渠道「悬浮通知」打开即可。面板顶部的版本号用于确认手机上跑的是不是新包。
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     </header>
   )

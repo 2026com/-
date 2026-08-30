@@ -10,6 +10,9 @@ public class MainActivity extends BridgeActivity {
     // 注册本地自定义插件（AppBridge：屏幕方向切换/退出App等），必须在 super.onCreate 之前
     registerPlugin(AppBridgePlugin.class);
     super.onCreate(savedInstanceState);
+    // 清 WebView HTTP 缓存（只清资源缓存，绝不清 IndexedDB/localStorage 用户数据）：
+    // 覆盖安装后旧资源残留会导致「新包跑旧 JS」的诡异问题
+    try { bridge.getWebView().clearCache(true); } catch (Throwable t) { /* ignore */ }
     // 原生侧直建通知渠道（绕开部分 ROM 上 JS 桥 createChannel 挂起的问题；幂等、后台线程）
     NotificationChannelsHelper.ensureCreated(this);
     // 拉起提醒守护前台服务（App 内到点兜底弹出，双保险之一；幂等）

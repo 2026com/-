@@ -56,7 +56,7 @@ public final class NotificationScheduler {
         if (atMs <= now + 500) { fireNow(ctx, id, title, body); return; }
         AlarmManager am = (AlarmManager) ctx.getSystemService(Context.ALARM_SERVICE);
         if (am == null) { setLastAlarmResult(ctx, "failed(no service)"); fireNow(ctx, id, title, body); return; }
-        PendingIntent pi = alarmPendingIntent(ctx, id, title, body);
+        PendingIntent pi = alarmPendingIntent(ctx, id, title, body, atMs);
         // ① setAlarmClock：用户可见闹钟（状态栏闹钟图标），ROM 清理后台不取消、DOZE 必触发
         try {
             AlarmManager.AlarmClockInfo info = new AlarmManager.AlarmClockInfo(atMs, contentPendingIntent(ctx, id));
@@ -125,7 +125,7 @@ public final class NotificationScheduler {
     public static void cancel(Context ctx, int id) {
         try {
             AlarmManager am = (AlarmManager) ctx.getSystemService(Context.ALARM_SERVICE);
-            if (am != null) am.cancel(alarmPendingIntent(ctx, id, "", ""));
+            if (am != null) am.cancel(alarmPendingIntent(ctx, id, "", "", 0L));
         } catch (Throwable e) { /* ignore */ }
         try {
             NotificationManager nm = (NotificationManager) ctx.getSystemService(Context.NOTIFICATION_SERVICE);
@@ -188,11 +188,12 @@ public final class NotificationScheduler {
         return NotificationChannel.DEFAULT_CHANNEL_ID;
     }
 
-    static PendingIntent alarmPendingIntent(Context ctx, int id, String title, String body) {
+    static PendingIntent alarmPendingIntent(Context ctx, int id, String title, String body, long atMs) {
         Intent i = new Intent(ctx, NotificationAlarmReceiver.class);
         i.putExtra("id", id);
         i.putExtra("title", title);
         i.putExtra("body", body);
+        i.putExtra("at", atMs);   // 计划触发时间：接收器据此做「迟到抑制」（ROM 延迟补发不响）
         int flags = PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE;
         return PendingIntent.getBroadcast(ctx, id, i, flags);
     }
@@ -269,7 +270,7 @@ public final class NotificationScheduler {
                 String body = it.optString("body", "");
                 try {
                     AlarmManager am = (AlarmManager) ctx.getSystemService(Context.ALARM_SERVICE);
-                    if (am != null) am.cancel(alarmPendingIntent(ctx, id, title, body));
+                    if (am != null) am.cancel(alarmPendingIntent(ctx, id, title, body, at));
                 } catch (Throwable t) { /* ignore */ }
                 if (!silent) showNotification(ctx, id, title, body);
             }
