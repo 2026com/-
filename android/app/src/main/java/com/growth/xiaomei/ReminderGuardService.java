@@ -28,12 +28,21 @@ public class ReminderGuardService extends Service {
     private static android.os.PowerManager.WakeLock sWakeLock;
 
     private Handler handler;
+    /** 首次扫描标记：服务刚拉起（= App 刚进入）时，积压的过期提醒只静默清理、不响铃不弹通知。
+     *  用户反馈：每次打开 App 都被「错过的提醒」响一遍很吵；错过的 = 已经过去的，响也没有意义。
+     *  之后（15s 周期）正常扫描，真正新到点的提醒照常横幅+响铃。 */
+    private boolean firstScanDone = false;
 
     private final Runnable tick = new Runnable() {
         @Override
         public void run() {
-            try { NotificationScheduler.fireIfDue(ReminderGuardService.this, System.currentTimeMillis()); }
-            catch (Throwable t) { /* ignore */ }
+            try {
+                NotificationScheduler.fireIfDue(
+                        ReminderGuardService.this,
+                        System.currentTimeMillis(),
+                        !firstScanDone);   // 首扫静默清理积压
+                firstScanDone = true;
+            } catch (Throwable t) { /* ignore */ }
             if (handler != null) handler.postDelayed(this, TICK_MS);
         }
     };

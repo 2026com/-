@@ -69,25 +69,33 @@ export default function LongTermGoalsPage() {
   }, [])
 
   // 初始化：旧单文本迁移为 pages[]；每天进入 → 今天没有页则自动新建；定位到今天最新一页
+  // （整体 try/catch 兜底：本地存储出现任何异常数据也不允许白屏/错误页）
   useEffect(() => {
-    const today = dayKey()
-    const list = loadNotes()
-    let n = list.length > 0 ? list[0] : null
-    if (n && !Array.isArray(n.pages)) {
-      const created = n.createdAt || n.updatedAt || Date.now()
-      n = { ...n, pages: [{ id: newPageId(), date: dayKey(new Date(created)), text: n.content || '' }] }
+    try {
+      const today = dayKey()
+      const list = loadNotes()
+      let n = list.length > 0 ? list[0] : null
+      if (n && !Array.isArray(n.pages)) {
+        const created = n.createdAt || n.updatedAt || Date.now()
+        n = { ...n, pages: [{ id: newPageId(), date: dayKey(new Date(created)), text: n.content || '' }] }
+      }
+      if (!n) n = { id: 'note-goal', title: '长期目标', content: '', createdAt: Date.now(), updatedAt: Date.now(), pages: [] }
+      let pages = Array.isArray(n.pages) ? n.pages.slice() : []
+      if (pages.length === 0 || pages[pages.length - 1].date !== today) {
+        pages = [...pages, { id: newPageId(), date: today, text: '' }]   // 新的一天 → 新的一页
+      }
+      const next = { ...n, pages, content: pages.map(p => p.text).join('\n') }
+      setNote(next)
+      setPageIdx(pages.length - 1)
+      const i = list.findIndex(x => x.id === next.id)
+      if (i >= 0) list[i] = next; else list.push(next)
+      persistNotes(list)
+    } catch (e) {
+      // 存储异常兜底：空本也能正常打开
+      const today = dayKey()
+      setNote({ id: 'note-goal', title: '长期目标', content: '', createdAt: Date.now(), updatedAt: Date.now(), pages: [{ id: newPageId(), date: today, text: '' }] })
+      setPageIdx(0)
     }
-    if (!n) n = { id: 'note-goal', title: '长期目标', content: '', createdAt: Date.now(), updatedAt: Date.now(), pages: [] }
-    let pages = Array.isArray(n.pages) ? n.pages.slice() : []
-    if (pages.length === 0 || pages[pages.length - 1].date !== today) {
-      pages = [...pages, { id: newPageId(), date: today, text: '' }]   // 新的一天 → 新的一页
-    }
-    const next = { ...n, pages, content: pages.map(p => p.text).join('\n') }
-    setNote(next)
-    setPageIdx(pages.length - 1)
-    const i = list.findIndex(x => x.id === next.id)
-    if (i >= 0) list[i] = next; else list.push(next)
-    persistNotes(list)
   }, [])
 
   const saveNow = useCallback((n) => {

@@ -28,6 +28,18 @@ export default class ErrorBoundary extends Component {
   }
 
   handleReload = () => {
+    // 刷新前先清理可能过期的 Service Worker / CacheStorage：
+    // APK 覆盖安装后旧缓存会继续吐旧 JS（引用已删除文件），导致「刷新也没用」
+    try {
+      if (navigator.serviceWorker && navigator.serviceWorker.getRegistrations) {
+        navigator.serviceWorker.getRegistrations()
+          .then((rs) => rs.forEach((r) => r.unregister()))
+          .catch(() => {})
+      }
+      if (window.caches && caches.keys) {
+        caches.keys().then((ks) => ks.forEach((k) => caches.delete(k))).catch(() => {})
+      }
+    } catch (_) { /* ignore */ }
     window.location.reload()
   }
 
