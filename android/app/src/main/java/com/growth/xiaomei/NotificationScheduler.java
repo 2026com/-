@@ -245,9 +245,15 @@ public final class NotificationScheduler {
         }
     }
 
-    /** 守护服务扫描：弹出所有已到期且仍在 pending 列表的条目（= 闹钟未触发/未设上）。
-     *  弹出前尽力取消对应闹钟防双响（失败无害）。 */
+    /** 守护服务扫描（响铃弹出） */
     public static synchronized void fireIfDue(Context ctx, long now) {
+        fireIfDue(ctx, now, false);
+    }
+
+    /** 守护服务扫描：弹出所有已到期且仍在 pending 列表的条目（= 闹钟未触发/未设上）。
+     *  弹出前尽力取消对应闹钟防双响（失败无害）。
+     *  silent=true：仅静默清理到期积压（App 冷启动用——错过的提醒不再响铃弹通知）。 */
+    public static synchronized void fireIfDue(Context ctx, long now, boolean silent) {
         try {
             SharedPreferences sp = ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE);
             JSONArray arr = new JSONArray(sp.getString(KEY_ITEMS, "[]"));
@@ -265,7 +271,7 @@ public final class NotificationScheduler {
                     AlarmManager am = (AlarmManager) ctx.getSystemService(Context.ALARM_SERVICE);
                     if (am != null) am.cancel(alarmPendingIntent(ctx, id, title, body));
                 } catch (Throwable t) { /* ignore */ }
-                showNotification(ctx, id, title, body);
+                if (!silent) showNotification(ctx, id, title, body);
             }
             sp.edit().putString(KEY_ITEMS, keep.toString()).apply();
         } catch (Throwable t) { /* ignore */ }

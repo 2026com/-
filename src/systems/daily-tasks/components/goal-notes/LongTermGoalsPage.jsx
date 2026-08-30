@@ -41,8 +41,8 @@ export default function LongTermGoalsPage() {
   const lineColor = dark ? '#2c3c66' : '#dbe3ee'
 
   const wrapRef = useRef(null)
-  const taRefs = useRef({})
-  const pendingFocus = useRef(null)   // 自动换页后要聚焦的位置 {idx,pos}
+  const lineRefs = useRef({})
+  const pendingFocus = useRef(null)   // 自动换页后要聚焦的位置 {idx,line}
   const timerRef = useRef(null)
 
   const [maxLines, setMaxLines] = useState(12)   // 每页行数（按屏幕高度实测）
@@ -111,49 +111,90 @@ export default function LongTermGoalsPage() {
     if (timerRef.current) { clearTimeout(timerRef.current); timerRef.current = null }
   }, [])
 
-  // 输入：写满本页自动「翻书」——溢出行续到下一页（同一天同日期），光标跟随翻页
-  const handleChange = useCallback((idx, e) => {
-    if (!note) return
-    const pages = note.pages.slice()
-    const cur = pages[idx]
-    let text = e.target.value
-    let flowTarget = null
-    const lines = text.split('\n')
-    if (lines.length > maxLines) {
-      const head = lines.slice(0, maxLines).join('\n')
-      const tail = lines.slice(maxLines).join('\n')
-      const nextP = pages[idx + 1]
+  const curPage = note && note.pages[pageIdx]
+  // ===== 逐行输入模型：每条横线一个输入框 → 点击哪一行就在哪一行输入 =====
+  const lineValues = curPage ? curPage.text.split('\n') : []
+  const lineAt = (i) => (i < lineValues.length ? lineValues[i] : '')
+
+  const commitPage = (idx, lines2, tailToNext) => {
+    const pages2 = note.pages.slice()
+    const cur = pages2[idx]
+    while (lines2.length && lines2[lines2.length - 1] === '') lines2.pop()
+    let text = lines2.join('\n')
+    if (tailToNext != null) {
+      const nextP = pages2[idx + 1]
       if (nextP && nextP.date === cur.date) {
-        pages[idx + 1] = { ...nextP, text: tail.replace(/\n$/, '') + (nextP.text ? '\n' + nextP.text : '') }
+        pages2[idx + 1] = { ...nextP, text: tailToNext + (nextP.text ? '\n' + nextP.text : '') }
       } else {
-        pages.splice(idx + 1, 0, { id: newPageId(), date: cur.date, text: tail })
+        pages2.splice(idx + 1, 0, { id: newPageId(), date: cur.date, text: tailToNext })
       }
-      flowTarget = { idx: idx + 1, pos: tail.length }
-      text = head
     }
-    pages[idx] = { ...cur, text }
-    const next = { ...note, pages, content: pages.map(p => p.text).join('\n'), updatedAt: Date.now() }
+    pages2[idx] = { ...cur, text }
+    const next = { ...note, pages: pages2, content: pages2.map(p => p.text).join('\n'), updatedAt: Date.now() }
     setNote(next)
     scheduleSave(next)
-    if (flowTarget) {
-      pendingFocus.current = flowTarget
-      setPageIdx(flowTarget.idx)
-    }
-  }, [note, maxLines, scheduleSave])
+  }
 
-  // 自动换页后：聚焦新页并把光标放到续写处
+  const handleLineChange = (lineIdx, value) => {
+    if (!note || !curPage) return
+    const lines = []
+    for (let i = 0; i < maxLines; i++) lines.push(i < lineValues.length ? lineValues[i] : '')
+    const parts = value.split('\n')
+    lines[lineIdx] = parts[0]
+    const tail = parts.length > 1 ? parts.slice(1).join('\n') : null   // 多行粘贴 → 续到下一页
+    commitPage(pageIdx, lines, tail)
+  }
+
+  const handleLineKeyDown = (lineIdx, e) => {
+    if (e.key !== 'Enter') return
+    e.preventDefault()
+    if (lineIdx < maxLines - 1) {
+      const el = lineRefs.current[lineIdx + 1]
+      if (el) { el.focus(); try { el.setSelectionRange(0, 0) } catch (err) { /* ignore */ } }
+      return
+    }
+    // 本页最后一行回车 → 翻到下一页继续（同一天续页，日期不变）
+    if (!note || !curPage) return
+    const pages2 = note.pages.slice()
+    let nextP = pages2[pageIdx + 1]
+    if (!nextP || nextP.date !== curPage.date) {
+      nextP = { id: newPageId(), date: curPage.date, text: '' }
+      pages2.splice(pageIdx + 1, 0, nextP)
+    }
+    const next = { ...note, pages: pages2, content: pages2.map(p => p.text).join('\n'), updatedAt: Date.now() }
+    setNote(next)
+    scheduleSave(next)
+    pendingFocus.current = { idx: pageIdx + 1, line: 0 }
+    setPageIdx(pageIdx + 1)
+  }
+
+  // 自动换页后：聚焦新页第一行
   useEffect(() => {
     if (!pendingFocus.current) return
-    const { idx, pos } = pendingFocus.current
-    const ta = taRefs.current[idx]
-    if (ta) {
-      ta.focus()
-      try { ta.setSelectionRange(pos, pos) } catch (err) { /* ignore */ }
+    const { idx, line } = pendingFocus.current
+    if (idx !== pageIdx) return
+    const el = lineRefs.current[line]
+    if (el) {
+      el.focus()
+      try { el.setSelectionRange(0, 0) } catch (err) { /* ignore */ }
       pendingFocus.current = null
     }
   }, [note, pageIdx])
 
-  const curPage = note && note.pages[pageIdx]
+  // 翻页：最后一页再往后翻 → 无限新建未来页（日期 = 上一页 + 1 天），方便提前写未来的提醒
+  const goNextPage = () => {
+    if (!note) return
+    if (pageIdx < note.pages.length - 1) { setPageIdx(pageIdx + 1); return }
+    const last = note.pages[note.pages.length - 1]
+    const d = new Date(`${last.date}T00:00:00`)
+    if (Number.isNaN(d.getTime())) return
+    d.setDate(d.getDate() + 1)
+    const pages2 = [...note.pages, { id: newPageId(), date: dayKey(d), text: '' }]
+    const next = { ...note, pages: pages2, updatedAt: Date.now() }
+    setNote(next)
+    scheduleSave(next)
+    setPageIdx(pages2.length - 1)
+  }
 
   // 天气（按天记忆，点击切换）
   const weatherKey = 'goalNoteWeather_' + (curPage ? curPage.date : dayKey())
@@ -204,24 +245,21 @@ export default function LongTermGoalsPage() {
             {readWeather() || '＋ 天气'}
           </button>
         </div>
-        {/* 正文：每页固定行数；点击任意横线 → 光标定位到该行 */}
-        {curPage && (
-          <textarea
-            ref={(el) => { if (el) taRefs.current[pageIdx] = el }}
-            value={curPage.text}
-            onChange={(e) => handleChange(pageIdx, e)}
-            placeholder="点击任意横线，开始记录…"
+        {/* 正文：逐行输入框 —— 点击哪一行横线，就在哪一行输入 */}
+        {curPage && Array.from({ length: maxLines }).map((_, i) => (
+          <input
+            key={`${pageIdx}-${i}`}
+            ref={(el) => { if (el) lineRefs.current[i] = el }}
+            value={lineAt(i)}
+            onChange={(e) => handleLineChange(i, e.target.value)}
+            onKeyDown={(e) => handleLineKeyDown(i, e)}
+            placeholder={i === 0 ? '点击任意横线，开始记录…' : ''}
             spellCheck={false}
-            className="w-full resize-none outline-none bg-transparent placeholder:text-slate-300 text-slate-700 dark:text-slate-200"
-            style={{
-              height: maxLines * LINE_H,
-              lineHeight: `${LINE_H}px`,
-              fontSize: FONT_SIZE,
-              padding: `0 ${PAD_X}px`,
-              overflow: 'hidden',
-            }}
+            autoComplete="off"
+            className="w-full block bg-transparent outline-none placeholder:text-slate-300 text-slate-700 dark:text-slate-200"
+            style={{ height: LINE_H, lineHeight: `${LINE_H}px`, fontSize: FONT_SIZE, padding: `0 ${PAD_X}px` }}
           />
-        )}
+        ))}
       </div>
 
       {/* ===== 翻页条：像翻书一样到新的一页 ===== */}
@@ -235,9 +273,8 @@ export default function LongTermGoalsPage() {
           第 {note ? pageIdx + 1 : 0} / {note ? note.pages.length : 0} 页{curPage ? ` · ${badgeOf(curPage.date)}` : ''}
         </span>
         <button
-          onClick={() => setPageIdx(i => Math.min((note ? note.pages.length : 1) - 1, i + 1))}
-          disabled={!note || pageIdx >= note.pages.length - 1}
-          className="px-3 py-1 rounded-lg text-xs text-slate-600 dark:text-slate-300 bg-slate-100 dark:bg-slate-800 disabled:opacity-35 touch-feedback"
+          onClick={goNextPage}
+          className="px-3 py-1 rounded-lg text-xs text-slate-600 dark:text-slate-300 bg-slate-100 dark:bg-slate-800 touch-feedback"
         >下一页 ›</button>
       </div>
     </div>

@@ -4,6 +4,7 @@ import { STORAGE_KEYS, DEFAULT_SETTINGS, SEVEN_SYSTEMS, DATA_VERSION } from '../
 import { initMockData } from '../data/mockData.js'
 import { ensureNotifyPermission, notifyNow, notifyNativeNow, fireNativeDueNow, playAlertSound, initNativeNotifications, scheduleNativeNotification, cancelNativeNotification } from '../utils/notify.js'
 import { showTopReminder } from '../components/widgets/TopReminderBanner.jsx'
+// 冷启动静默：App 不在期间错过的提醒不再响铃（下方 checkDue 内使用）
 import { bootInitialState, readAllState } from './appStorage.js'
 import { dailyTasksReducer } from './reducers/dailyTasksReducer.js'
 import { reviewReducer } from './reducers/reviewReducer.js'
@@ -496,6 +497,7 @@ export function AppProvider({ children }) {
       } catch (e) { /* 原生同步失败静默（网页环境会因 isCapRun 提前返回） */ }
       finally { nativeSyncing = false }
     }
+    const coldStartRef = useRef(true)   // 冷启动首扫：错过的提醒静默处理（不响铃不横幅）
     const checkDue = async () => {
       const now = Date.now()
       const s = stateRef.current
@@ -507,11 +509,12 @@ export function AppProvider({ children }) {
       const today0 = new Date(); today0.setHours(0, 0, 0, 0)
       const pad2 = (x) => String(x).padStart(2, '0')
       const todayStr = `${today0.getFullYear()}-${pad2(today0.getMonth() + 1)}-${pad2(today0.getDate())}`
-      const hmDue = (hm) => {
+      const hmDueTs = (hm) => {
         const m = String(hm).match(/^(\d{2}):(\d{2})$/)
-        if (!m) return false
-        return now >= today0.getTime() + (Number(m[1]) * 3600000 + Number(m[2]) * 60000)
+        if (!m) return null
+        return today0.getTime() + (Number(m[1]) * 3600000 + Number(m[2]) * 60000)
       }
+      const hmDue = (hm) => { const ts = hmDueTs(hm); return ts != null && now >= ts }
       const toMark = []
       // 1) 节点闹钟
       nodes.forEach(n => {
@@ -522,17 +525,17 @@ export function AppProvider({ children }) {
         if (!m) return
         const d = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]), Number(m[4]), Number(m[5]), 0, 0)
         const due = d.getTime()
-        if (!Number.isNaN(due) && now >= due) toMark.push({ id: n.id, title: n.title, isoTime: r.isoTime, kind: 'node' })
+        if (!Number.isNaN(due) && now >= due) toMark.push({ id: n.id, title: n.title, isoTime: r.isoTime, kind: 'node', dueTs: due })
       })
       // 2) 习惯提醒（今日该时刻已到，且今天未提醒过）
       habits.forEach(h => {
         if (!h.reminder || h._notifiedDate === todayStr) return
-        if (hmDue(h.reminder)) toMark.push({ id: h.id, title: h.title, hm: h.reminder, kind: 'habit' })
+        if (hmDue(h.reminder)) toMark.push({ id: h.id, title: h.title, hm: h.reminder, kind: 'habit', dueTs: hmDueTs(h.reminder) })
       })
       // 3) 临时任务提醒
       tempTasks.forEach(t => {
         if (!t.reminderTime || t.reminder === false || t.done || t._notifiedDate === todayStr) return
-        if (hmDue(t.reminderTime)) toMark.push({ id: t.id, title: t.title, hm: t.reminderTime, kind: 'temp' })
+        if (hmDue(t.reminderTime)) toMark.push({ id: t.id, title: t.title, hm: t.reminderTime, kind: 'temp', dueTs: hmDueTs(t.reminderTime) })
       })
       if (toMark.length === 0) return
       // 标记已提醒（走 reducer 双写持久化，避免 15s 轮询重复弹）
@@ -551,25 +554,33 @@ export function AppProvider({ children }) {
       //   [修复] 此前走 notifyNow（1 秒后闹钟路径），K60 上 setAlarmClock 被 ROM 吞 →
       //   到点只有应用内弹窗、系统通知永远不来（无声）。
       // - PWA：页面不可见/未聚焦时弹浏览器系统通知。
+      // 冷启动首扫：App 不在期间到点的「错过提醒」静默忽略——只标记，不响铃不横幅，
+      // 避免每次打开 App 都被积压提醒响一遍；刚到点 90 秒内的仍正常提醒。
+      const cold = coldStartRef.current
+      coldStartRef.current = false
+      const missed = cold ? toMark.filter(m => m.dueTs != null && now - m.dueTs > 90000) : []
+      const fresh = cold ? toMark.filter(m => !missed.includes(m)) : toMark
       const toFire = []
-      toMark.forEach(item => {
+      fresh.forEach(item => {
         const title = item.kind === 'node' ? '🔔 节点闹钟提醒' : '🔔 打卡提醒'
         const message = item.kind === 'node'
           ? `任务「${item.title || '未命名节点'}」到达设定时间：${formatReminderTime(item.isoTime)}，请及时开始或延后。`
           : `「${item.title || '未命名任务'}」到了提醒时间 ${item.hm}，记得完成打卡哦。`
-        // 应用内可见性：改为「顶部横幅」（微信式，6 秒自动消失），不再是居中大弹窗；
-        // App 外的可见性由下方 toFire 的系统通知（横幅/全屏意图）负责，内外体验一致。
+        // 应用内可见性：顶部横幅（微信式）；App 外由 toFire 的系统通知（横幅/全屏意图）负责
         showTopReminder(title, message)
         toFire.push({ title, message })
       })
       // 微信式前台提示音：与通知渠道/闹钟/权限完全解耦，App 在前台时直接播放（必响）。
-      // 这就是微信/QQ 收到消息那声"叮"的实现方式——不依赖系统放行。
-      playAlertSound()
+      if (fresh.length > 0) playAlertSound()
       if (isCapRun()) {
-        const fired = await fireNativeDueNow()
-        if (!fired) toFire.forEach(x => notifyNativeNow(x.title, x.message))
+        // 冷启动：静默清理原生积压的过期提醒（不响铃不弹），避免守护/闹钟随后再补一响
+        const fired = await fireNativeDueNow({ silent: cold })
+        if (!fired && toFire.length) toFire.forEach(x => notifyNativeNow(x.title, x.message))
       } else {
         toFire.forEach(x => notifyNow(x.title, x.message))
+      }
+      if (missed.length > 0) {
+        dispatch({ type: 'PUSH_MODAL', payload: { type: 'toast', message: `ℹ️ 已静默忽略 ${missed.length} 条错过的提醒`, duration: 1600 } })
       }
       // 原生壳（APK）：把未来提醒同步注册到 Android 系统时钟（锁屏/杀进程可靠触发）
       syncNativeReminders()

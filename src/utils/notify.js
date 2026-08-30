@@ -190,10 +190,10 @@ export async function notifyNativeNow(title, body) {
  *  闹钟已触发过的条目已被移出 pending → 自动跳过（防双响）；
  *  闹钟被 ROM 吞掉/未设上的 → 立即补弹（走已实测有声的直弹路径）。
  *  返回 false = 原生扫描不可用，调用方需自行降级为直弹通知。 */
-export async function fireNativeDueNow() {
+ export async function fireNativeDueNow(opts = {}) {
   if (!isCapacitor()) return false
   try {
-    await withNativeTimeout(AppBridge.fireDueNow(), 5000)
+    await withNativeTimeout(AppBridge.fireDueNow({ silent: !!opts.silent }), 5000)
     return true
   } catch (e) {
     console.warn('[notify] fireDueNow 失败:', e?.message)

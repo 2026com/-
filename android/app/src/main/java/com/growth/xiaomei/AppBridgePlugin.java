@@ -153,7 +153,8 @@ public class AppBridgePlugin extends Plugin {
     @PluginMethod
     public void fireDueNow(PluginCall call) {
         try {
-            NotificationScheduler.fireIfDue(getContext(), System.currentTimeMillis());
+            boolean silent = Boolean.TRUE.equals(call.getBoolean("silent"));
+            NotificationScheduler.fireIfDue(getContext(), System.currentTimeMillis(), silent);
             call.resolve();
         } catch (Exception e) {
             call.reject("扫描失败: " + e.getMessage());
