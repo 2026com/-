@@ -7,7 +7,8 @@ import WheelTimePicker from './habits/WheelTimePicker.jsx'
 import BatchCheckinModal from './habits/BatchCheckinModal.jsx'
 import PomodoroModal from './habits/PomodoroModal.jsx'
 import { pushBackHandler } from '../../../utils/backStack.js'
-import { openNotificationSettings, openAppDetailsSettings, openFullScreenIntentSettings, getReminderStatus } from '../../../services/device.js'
+import { openNotificationSettings, openAppDetailsSettings, openFullScreenIntentSettings, openChannelSettings, getReminderStatus } from '../../../services/device.js'
+import { notifyNativeNow } from '../../../utils/notify.js'
 
 /**
  * 双页打卡真实交互版
@@ -322,13 +323,22 @@ function ReminderSetupBanner() {
   }
   const jumpBtn = 'ml-1.5 px-1.5 py-0.5 rounded bg-amber-100 hover:bg-amber-200 text-amber-900 font-semibold touch-feedback shrink-0'
   const mark = (ok) => (st ? (ok ? '✅' : '❌') : '·')
+  const [testing, setTesting] = useState(false)
+  const testBanner = async () => {
+    setTesting(true)
+    try { await notifyNativeNow('🔔 测试横幅', '看到这条从顶部弹出 = App 外提醒通道畅通 ✅') } catch (e) { /* ignore */ }
+    setTimeout(() => setTesting(false), 2000)
+  }
 
   // 全部就绪 → 收起为一条绿色提示（悬浮通知为 MIUI 手动开关，无法读取，仍保留一句提醒）
   if (st && st.notificationsEnabled && st.fsiGranted && st.batteryIgnored && st.guardRunning) {
     return (
       <div className="bg-emerald-50 border border-emerald-200 rounded-2xl px-3 py-2 mb-4 shrink-0 text-xs text-emerald-700 flex items-center justify-between gap-2">
-        <span>✅ 提醒链路就绪（App 外到点会横幅+响铃；若仍无横幅，请到系统设置→通知→成长小美→「成长提醒」确认「悬浮通知」已开）</span>
-        <button onClick={done} className="w-6 h-6 rounded-md hover:bg-emerald-100 text-emerald-500 shrink-0" title="不再显示">✕</button>
+        <span>✅ 提醒链路就绪（App 外到点会横幅+响铃）。点「测试」立即验证横幅是否弹出</span>
+        <div className="flex items-center gap-1 shrink-0">
+          <button onClick={testBanner} className="px-1.5 py-0.5 rounded bg-emerald-100 hover:bg-emerald-200 text-emerald-800 font-semibold touch-feedback">{testing ? '已发送…' : '📢 测试'}</button>
+          <button onClick={done} className="w-6 h-6 rounded-md hover:bg-emerald-100 text-emerald-500" title="不再显示">✕</button>
+        </div>
       </div>
     )
   }
@@ -337,12 +347,15 @@ function ReminderSetupBanner() {
     <div className="bg-amber-50 border border-amber-200 rounded-2xl p-3 mb-4 shrink-0 text-xs text-amber-800">
       <div className="flex items-start justify-between gap-2">
         <div className="font-bold">📣 App 外提醒（微信式横幅）未完全就绪，按 ❌ 逐项开启：</div>
-        <button onClick={done} className="w-6 h-6 -mt-0.5 -mr-0.5 rounded-md hover:bg-amber-100 text-amber-500 shrink-0" title="不再显示">✕</button>
+        <div className="flex items-center gap-1 shrink-0">
+          <button onClick={testBanner} className="px-1.5 py-0.5 rounded bg-sky-100 hover:bg-sky-200 text-sky-800 font-semibold touch-feedback">{testing ? '已发送…' : '📢 测试横幅'}</button>
+          <button onClick={done} className="w-6 h-6 -mt-0.5 rounded-md hover:bg-amber-100 text-amber-500" title="不再显示">✕</button>
+        </div>
       </div>
       <div className="mt-1.5 space-y-1.5 leading-relaxed">
         <div className="flex items-center">
-          <span>{mark(st ? st.notificationsEnabled : null)} 通知权限 + 「成长提醒」渠道：悬浮通知 / 锁屏通知 / 声音 全开</span>
-          <button onClick={() => openNotificationSettings()} className={jumpBtn}>去开启 ›</button>
+          <span>{mark(st ? st.notificationsEnabled : null)} 「成长提醒」渠道：悬浮通知 / 锁屏通知 / 声音 全开（横幅不弹的头号原因）</span>
+          <button onClick={() => openChannelSettings()} className={jumpBtn}>去开启 ›</button>
         </div>
         <div className="flex items-center">
           <span>{mark(st ? st.fsiGranted : null)} 全屏通知 = 允许（熄屏到点点亮屏幕弹出）</span>
@@ -402,6 +415,7 @@ function HabitForm({ initial, onClose, onSubmit }) {
   const [title, setTitle] = useState(initial?.title || '')
   const [reminder, setReminder] = useState(initial?.reminder || '')   // HH:MM
   const [reminderOn, setReminderOn] = useState(!!initial?.reminder)   // 是否开启到点提醒
+  const nowHM = () => { const d = new Date(); return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}` }
   const [estMinutes, setEst] = useState(initial?.estMinutes != null ? String(initial.estMinutes) : '30')
   const [difficulty, setDifficulty] = useState(initial?.difficulty || 'normal')
 
@@ -435,14 +449,18 @@ function HabitForm({ initial, onClose, onSubmit }) {
           <input
             type="checkbox"
             checked={reminderOn}
-            onChange={(e) => { setReminderOn(e.target.checked); if (!e.target.checked) setReminder('') }}
+            onChange={(e) => {
+              setReminderOn(e.target.checked)
+              if (e.target.checked && !reminder) setReminder(nowHM())   // 默认 = 当前时刻
+              if (!e.target.checked) setReminder('')
+            }}
             className="w-3.5 h-3.5 accent-indigo-600"
           />
           到点提醒（可选）
         </label>
         {reminderOn && (
           <div className="mt-1">
-            <WheelTimePicker value={reminder || '09:00'} onChange={setReminder} />
+            <WheelTimePicker value={reminder || nowHM()} onChange={setReminder} />
           </div>
         )}
       </div>
@@ -490,8 +508,9 @@ function TempForm({ initial, onClose, onSubmit }) {
   const toast = (m) => dispatch({ type: 'PUSH_MODAL', payload: { type: 'toast', message: m } })
 
   const nowHH = (new Date()).getHours().toString().padStart(2, '0')
+  const nowMM = (new Date()).getMinutes().toString().padStart(2, '0')
   const [title, setTitle] = useState(initial?.title || '')
-  const [reminderTime, setReminderTime] = useState(initial?.reminderTime || `${nowHH}:00`)
+  const [reminderTime, setReminderTime] = useState(initial?.reminderTime || `${nowHH}:${nowMM}`)
   const [reminder, setReminder] = useState(initial?.reminder !== false)
 
   const submit = (e) => {

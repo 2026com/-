@@ -271,6 +271,26 @@ public class AppBridgePlugin extends Plugin {
         }
     }
 
+    /** 跳转「成长提醒」渠道的通知设置页（悬浮通知/锁屏通知/声音就在这一页，MIUI 默认全关） */
+    @PluginMethod
+    public void openChannelSettings(PluginCall call) {
+        Activity activity = getActivity();
+        if (activity == null) { call.reject("activity unavailable"); return; }
+        try {
+            android.content.Intent i = new android.content.Intent(android.provider.Settings.ACTION_CHANNEL_NOTIFICATION_SETTINGS);
+            i.putExtra(android.provider.Settings.EXTRA_APP_PACKAGE, activity.getPackageName());
+            i.putExtra(android.provider.Settings.EXTRA_CHANNEL_ID, NotificationChannelsHelper.NOTIFY);
+            activity.runOnUiThread(new Runnable() {
+                @Override public void run() {
+                    try { activity.startActivity(i); } catch (Throwable t) { /* ignore */ }
+                }
+            });
+            call.resolve();
+        } catch (Exception e) {
+            call.reject("跳转失败: " + e.getMessage());
+        }
+    }
+
     /** 跳转本应用系统「通知设置」页（悬浮通知/锁屏通知/声音，仅需设置一次） */
     @PluginMethod
     public void openNotificationSettings(PluginCall call) {

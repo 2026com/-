@@ -24,6 +24,13 @@ public class MainActivity extends BridgeActivity {
         bridge.triggerJSEvent("backbutton", "window");
       }
     });
+    // 进 App 即静默清理积压（原生侧、先于 WebView JS）：划掉后台期间错过的提醒
+    // 直接取消其被系统延迟的闹钟并移出待触发列表——不响铃不弹通知。
+    // 否则 ROM 会把错过的闹钟「延迟到 App 一打开」补响（NotificationAlarmReceiver），
+    // 这正是「每次进 App 都响守护提醒音乐」的来源；JS 冷启动来不及抢在它前面。
+    try {
+      NotificationScheduler.fireIfDue(getApplicationContext(), System.currentTimeMillis(), true);
+    } catch (Throwable t) { /* ignore */ }
     // 电池优化白名单：启动后自动申请（全生命周期最多弹 2 次）。
     // 这是守护服务/熄屏提醒能否存活的前提；此前为手动「保活」按钮（用户从未点过）→ 改为自动。
     maybeRequestBatteryWhitelist();

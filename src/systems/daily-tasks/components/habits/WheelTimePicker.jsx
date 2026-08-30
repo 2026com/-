@@ -83,10 +83,16 @@ function Wheel({ items, index, onIndexChange }) {
   )
 }
 
+/** 当前时刻 HH:mm（时间选择器默认值 = 打开时的时间，而不是固定的 09:00） */
+export function nowHHmm() {
+  const d = new Date()
+  return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
+}
+
 /** 触发行：表单内一行「🕐 上午 09:00」按钮，点击弹出选择卡 */
 export default function WheelTimePicker({ value, onChange, title = '设置提醒时间' }) {
   const [open, setOpen] = useState(false)
-  const m = String(value || '09:00').match(/^(\d{1,2}):(\d{2})$/)
+  const m = String(value || nowHHmm()).match(/^(\d{1,2}):(\d{2})$/)
   const h24 = m ? Number(m[1]) : 9
   const label = `${h24 < 12 ? '上午' : '下午'} ${String(h24 % 12 === 0 ? 12 : h24 % 12).padStart(2, '0')}:${m ? m[2] : '00'}`
   return (
@@ -101,7 +107,7 @@ export default function WheelTimePicker({ value, onChange, title = '设置提醒
       </button>
       {open && (
         <PickerBody
-          value={value || '09:00'}
+          value={value || nowHHmm()}
           title={title}
           onConfirm={(v) => { onChange(v); setOpen(false) }}
           onDismiss={() => setOpen(false)}

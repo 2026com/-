@@ -73,6 +73,17 @@ export async function openFullScreenIntentSettings() {
   }
 }
 
+/** 跳转「成长提醒」渠道通知设置页（悬浮通知/锁屏通知/声音——MIUI 默认全关，横幅不弹的头号原因） */
+export async function openChannelSettings() {
+  try {
+    await AppBridge.openChannelSettings()
+    return true
+  } catch (e) {
+    console.warn('[device] 打开渠道设置失败:', e && e.message)
+    return false
+  }
+}
+
 /** 提醒链路状态（通知权限/全屏通知/电池白名单/守护服务/渠道重要级）——引导卡实时显示用 */
 export async function getReminderStatus() {
   try {
