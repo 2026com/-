@@ -161,6 +161,20 @@ export default function LeftDrawer() {
               {drawerMode === 'nav' ? '七大系统' : 'AI对话'}
             </span>
             <div className="flex-1" />
+            {/* AI 对话全屏开关（纯新增）：点击广播事件，全屏状态与渲染由 ChatInterface 自己处理 */}
+            {drawerMode === 'ai' && (
+              <button
+                onClick={() => { try { window.dispatchEvent(new CustomEvent('app:ai-fullscreen-toggle')) } catch (e) { /* ignore */ } }}
+                className="w-7 h-7 rounded-md hover:bg-slate-100 text-slate-600 hover:text-indigo-600 flex items-center justify-center touch-feedback shrink-0"
+                title="全屏对话"
+                aria-label="AI 对话全屏"
+              >
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M8 3H5a2 2 0 0 0-2 2v3" /><path d="M16 3h3a2 2 0 0 1 2 2v3" />
+                  <path d="M8 21H5a2 2 0 0 1-2-2v-3" /><path d="M16 21h3a2 2 0 0 0 2-2v-3" />
+                </svg>
+              </button>
+            )}
             <button
               onClick={() => dispatch({ type: 'TOGGLE_DRAWER_MODE' })}
               className="px-2 py-1 text-xs rounded-md bg-indigo-50 text-indigo-600 hover:bg-indigo-100 touch-feedback shrink-0"

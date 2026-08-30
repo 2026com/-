@@ -6,6 +6,7 @@ import { buildContextMessages } from '../services/conversationManager.js'
 import AIConfigPanel from '../../../components/ai/AIConfigPanel.jsx'
 import KnowledgeImportPanel from './KnowledgeImportPanel.jsx'
 import { dbGet, dbSet } from '../../../services/db.js'
+import { pushBackHandler } from '../../../utils/backStack.js'
 
 /**
  * 常驻可收起侧边 AI 对话窗口
@@ -31,6 +32,27 @@ export default function AIChatSidebar({ onOpenConfig, embedded = false }) {
   const [configOpen, setConfigOpen] = useState(false)
   // 添加知识面板（链接 → 解析 → 拆解 → 知识节点入库 IndexedDB → 3D 图谱自动渲染）
   const [importOpen, setImportOpen] = useState(false)
+  // 全屏对话模式（仅 embedded 左侧抽屉模式有意义）：fixed 铺满视口，Esc/返回键/再次点击退出
+  const [fullscreen, setFullscreen] = useState(false)
+
+  // 监听左侧抽屉标题栏的全屏开关按钮（LeftDrawer 广播 app:ai-fullscreen-toggle）
+  useEffect(() => {
+    const onToggle = () => setFullscreen(v => !v)
+    window.addEventListener('app:ai-fullscreen-toggle', onToggle)
+    return () => window.removeEventListener('app:ai-fullscreen-toggle', onToggle)
+  }, [])
+
+  // 全屏时：注册安卓返回键关闭（LIFO 浮层栈）+ 桌面 Esc 退出
+  useEffect(() => {
+    if (!fullscreen) return undefined
+    const unbind = pushBackHandler(() => setFullscreen(false))
+    const onKey = (e) => { if (e.key === 'Escape') setFullscreen(false) }
+    window.addEventListener('keydown', onKey)
+    return () => {
+      unbind()
+      window.removeEventListener('keydown', onKey)
+    }
+  }, [fullscreen])
 
   // ================ 折叠态浮球可拖动（仅垂直方向，右侧贴边保持不变） ================
   const FAB_STORAGE_KEY = 'ai.fab.position.v1'
@@ -294,7 +316,10 @@ export default function AIChatSidebar({ onOpenConfig, embedded = false }) {
       <div
         className={
           embedded
-            ? 'relative h-full w-full flex'
+            ? (fullscreen
+                /* 全屏：fixed 铺满视口；z-[45] 盖过抽屉(z-40)，让位全局弹窗(z-50)与悬浮球(z-60) */
+                ? 'fixed inset-0 z-[45] bg-white flex'
+                : 'relative h-full w-full flex')
             : `fixed right-0 top-0 h-full z-40 transition-all duration-300 ease-out flex ${
                 expanded ? 'translate-x-0' : 'translate-x-full pointer-events-none'
               }`
@@ -328,6 +353,29 @@ export default function AIChatSidebar({ onOpenConfig, embedded = false }) {
               </div>
             </div>
             <div className="flex items-center gap-1">
+              {/* 全屏/退出全屏（仅左侧抽屉嵌入模式；与抽屉标题栏的按钮共用同一状态） */}
+              {embedded && (
+                <button
+                  onClick={() => setFullscreen(v => !v)}
+                  className="w-8 h-8 rounded-lg hover:bg-slate-100 text-slate-600 hover:text-indigo-600 flex items-center justify-center touch-feedback"
+                  title={fullscreen ? '退出全屏' : '全屏对话'}
+                  aria-label={fullscreen ? '退出全屏' : '全屏对话'}
+                >
+                  {fullscreen ? (
+                    /* 退出全屏：收拢箭头 */
+                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M8 3v3a2 2 0 0 1-2 2H3" /><path d="M21 8h-3a2 2 0 0 1-2-2V3" />
+                      <path d="M3 16h3a2 2 0 0 1 2 2v3" /><path d="M16 21v-3a2 2 0 0 1 2-2h3" />
+                    </svg>
+                  ) : (
+                    /* 全屏：四角展开 */
+                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M8 3H5a2 2 0 0 0-2 2v3" /><path d="M16 3h3a2 2 0 0 1 2 2v3" />
+                      <path d="M8 21H5a2 2 0 0 1-2-2v-3" /><path d="M16 21h3a2 2 0 0 0 2-2v-3" />
+                    </svg>
+                  )}
+                </button>
+              )}
               <button
                 onClick={() => {
                   if (onOpenConfig) onOpenConfig()
