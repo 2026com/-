@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react'
 import { loadNotes, persistNotes } from '../../services/notesStorage.js'
 import { useAppTheme } from '../../../../services/theme.js'
+import GoalsPaperGallery from './GoalsPaperGallery.jsx'
 
 /**
  * 长期目标页 · 横线本（分页版）
@@ -49,6 +50,9 @@ export default function LongTermGoalsPage() {
   const [note, setNote] = useState(null)
   const [pageIdx, setPageIdx] = useState(0)
   const [saveState, setSaveState] = useState('saved')
+  const [showGallery, setShowGallery] = useState(false)
+  const [photoView, setPhotoView] = useState(null)   // 新增：照片大图预览
+  const fileInputRef = useRef(null)                  // 新增：隐藏的选图 input
   const [, setWeatherTick] = useState(0)          // 天气点击后强制刷新
 
   // 屏幕高度 → 每页行数（扣除顶部留白 + 页眉行）
@@ -213,15 +217,119 @@ export default function LongTermGoalsPage() {
     setWeatherTick(t => t + 1)
   }
 
+  // ===== 照片（新增，纯插入）：压缩存入本页 / 删除 / 预览，复用现有自动保存 =====
+  const compressImage = (file) => new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => {
+      const img = new Image()
+      img.onload = () => {
+        const MAX_W = 1000
+        const scale = Math.min(1, MAX_W / img.width)
+        const canvas = document.createElement('canvas')
+        canvas.width = Math.max(1, Math.round(img.width * scale))
+        canvas.height = Math.max(1, Math.round(img.height * scale))
+        canvas.getContext('2d').drawImage(img, 0, 0, canvas.width, canvas.height)
+        resolve(canvas.toDataURL('image/jpeg', 0.72))
+      }
+      img.onerror = reject
+      img.src = reader.result
+    }
+    reader.onerror = reject
+    reader.readAsDataURL(file)
+  })
+
+  const addPhotos = async (fileList) => {
+    if (!note || !curPage || !fileList || !fileList.length) return
+    const files = Array.from(fileList).slice(0, 9)
+    try {
+      const photos = []
+      for (const f of files) {
+        photos.push({ id: 'ph' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6), dataUrl: await compressImage(f), ts: Date.now() })
+      }
+      const pages2 = note.pages.slice()
+      pages2[pageIdx] = { ...curPage, photos: [...(curPage.photos || []), ...photos] }
+      const next = { ...note, pages: pages2, updatedAt: Date.now() }
+      setNote(next)
+      scheduleSave(next)
+    } catch (e) { /* 单张失败忽略，不影响本子 */ }
+  }
+
+  const removePhoto = (phId) => {
+    if (!note || !curPage) return
+    const pages2 = note.pages.slice()
+    pages2[pageIdx] = { ...curPage, photos: (curPage.photos || []).filter(p => p.id !== phId) }
+    const next = { ...note, pages: pages2, updatedAt: Date.now() }
+    setNote(next)
+    scheduleSave(next)
+  }
+
   return (
     <div className="h-full w-full flex flex-col relative overflow-hidden bg-white dark:bg-slate-900">
       {/* ===== 顶部标题栏：标题 + 保存状态 ===== */}
       <div className="flex items-center justify-between px-4 pt-2.5 pb-2 border-b border-slate-200 dark:border-slate-700 bg-white/90 dark:bg-slate-900/90 backdrop-blur-[2px] shrink-0">
         <h1 className="text-[15px] font-bold text-slate-800 dark:text-slate-100 tracking-wide">长期目标 · 横线本</h1>
-        <span className={`text-[11px] transition-colors ${saveState === 'saved' ? 'text-emerald-500' : 'text-slate-400'}`}>
+        <div className="flex items-center gap-2.5">
+          {/* 记录总览入口（新增）：查看所有记录页的缩略画廊 */}
+          <button
+            onClick={() => setShowGallery(true)}
+            className="w-7 h-7 rounded-lg flex items-center justify-center text-slate-500 dark:text-slate-300 hover:text-indigo-600 hover:bg-slate-100 dark:hover:bg-slate-800 touch-feedback"
+            title="记录总览：查看本子所有记录页"
+          >
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <rect x="3" y="4" width="13" height="16" rx="1.5" />
+              <line x1="6" y1="8.5" x2="13" y2="8.5" />
+              <line x1="6" y1="12" x2="13" y2="12" />
+              <line x1="6" y1="15.5" x2="13" y2="15.5" />
+              <path d="M19 7.5v9" /><path d="M21.5 9.5v5" />
+            </svg>
+          </button>
+          {/* 插入照片入口（新增） */}
+          <button
+            onClick={() => { if (fileInputRef.current) fileInputRef.current.click() }}
+            className="w-7 h-7 rounded-lg flex items-center justify-center text-slate-500 dark:text-slate-300 hover:text-indigo-600 hover:bg-slate-100 dark:hover:bg-slate-800 touch-feedback"
+            title="在本页插入照片"
+          >
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <rect x="3" y="5" width="18" height="14" rx="2" />
+              <circle cx="8.5" cy="10" r="1.5" />
+              <path d="M21 15.5l-4.5-4.5L7 20" />
+            </svg>
+          </button>
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="image/*"
+            multiple
+            style={{ display: 'none' }}
+            onChange={(e) => { addPhotos(e.target.files); e.target.value = '' }}
+          />
+          <span className={`text-[11px] transition-colors ${saveState === 'saved' ? 'text-emerald-500' : 'text-slate-400'}`}>
           {saveState === 'saved' ? '✓ 已保存' : saveState === 'saving' ? '保存中...' : '编辑中...'}
         </span>
+        </div>
       </div>
+
+      {/* ===== 本页照片条（新增）：仅当本页有照片时显示，放在稿纸外不影响横线对齐 ===== */}
+      {curPage && Array.isArray(curPage.photos) && curPage.photos.length > 0 && (
+        <div className="shrink-0 flex items-center gap-2 px-5 py-1.5 overflow-x-auto border-b border-slate-100 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-800/40">
+          {curPage.photos.map(ph => (
+            <div key={ph.id} className="relative shrink-0">
+              <img
+                src={ph.dataUrl}
+                alt=""
+                onClick={() => setPhotoView(ph.dataUrl)}
+                className="h-10 w-auto max-w-[88px] object-contain rounded border border-slate-200 dark:border-slate-600 cursor-zoom-in bg-white"
+              />
+              <button
+                onClick={() => removePhoto(ph.id)}
+                className="absolute -top-1.5 -right-1.5 w-4 h-4 rounded-full bg-slate-600 text-white text-[10px] leading-4 text-center hover:bg-red-500"
+                title="删除这张照片"
+              >×</button>
+            </div>
+          ))}
+          <span className="text-[10px] text-slate-400 shrink-0">{curPage.photos.length} 张照片</span>
+        </div>
+      )}
 
       {/* ===== 横线稿纸：页眉行(不可编辑) + 正文（任意横线点击即输入） ===== */}
       <div
@@ -285,6 +393,25 @@ export default function LongTermGoalsPage() {
           className="px-3 py-1 rounded-lg text-xs text-slate-600 dark:text-slate-300 bg-slate-100 dark:bg-slate-800 touch-feedback"
         >下一页 ›</button>
       </div>
+
+      {/* ===== 照片大图预览（新增） ===== */}
+      {photoView && (
+        <div
+          className="fixed inset-0 z-[85] bg-black/70 flex items-center justify-center p-8 cursor-zoom-out"
+          onClick={() => setPhotoView(null)}
+        >
+          <img src={photoView} alt="" className="max-w-full max-h-full object-contain rounded shadow-2xl bg-white" />
+        </div>
+      )}
+
+      {/* ===== 记录总览画廊（新增，纯新增组件） ===== */}
+      {showGallery && note && (
+        <GoalsPaperGallery
+          pages={note.pages}
+          onClose={() => setShowGallery(false)}
+          onJump={(idx) => { setPageIdx(idx); setShowGallery(false) }}
+        />
+      )}
     </div>
   )
 }
