@@ -296,7 +296,8 @@ export default function DailyHabitsPage() {
  *  每次回到前台自动刷新状态；全部就绪时收起为一条绿色提示。 */
 function ReminderSetupBanner() {
   const [hidden, setHidden] = useState(() => {
-    try { return localStorage.getItem('reminderSetupDone') === '1' } catch (e) { return false }
+    // V2：旧版引导卡与新版状态卡共用过 key，换新 key 让状态卡重新出现一次
+    try { return localStorage.getItem('reminderSetupDoneV2') === '1' } catch (e) { return false }
   })
   const [st, setSt] = useState(null)
 
@@ -316,7 +317,7 @@ function ReminderSetupBanner() {
 
   if (hidden) return null
   const done = () => {
-    try { localStorage.setItem('reminderSetupDone', '1') } catch (e) { /* ignore */ }
+    try { localStorage.setItem('reminderSetupDoneV2', '1') } catch (e) { /* ignore */ }
     setHidden(true)
   }
   const jumpBtn = 'ml-1.5 px-1.5 py-0.5 rounded bg-amber-100 hover:bg-amber-200 text-amber-900 font-semibold touch-feedback shrink-0'

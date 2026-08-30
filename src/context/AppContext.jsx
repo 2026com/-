@@ -554,33 +554,28 @@ export function AppProvider({ children }) {
       //   [修复] 此前走 notifyNow（1 秒后闹钟路径），K60 上 setAlarmClock 被 ROM 吞 →
       //   到点只有应用内弹窗、系统通知永远不来（无声）。
       // - PWA：页面不可见/未聚焦时弹浏览器系统通知。
-      // 冷启动首扫：App 不在期间到点的「错过提醒」静默忽略——只标记，不响铃不横幅，
-      // 避免每次打开 App 都被积压提醒响一遍；刚到点 90 秒内的仍正常提醒。
+      // 冷启动首扫：App 不在期间到点的提醒【一律静默】——只标记 + 应用内顶部横幅（视觉），
+      // 绝不响铃/发系统通知（用户刚打开 App，横幅看得见；积压提醒连环轰炸体验极差）。
+      // 冷启动之后的 15s 周期扫描才是「正常提醒」：顶部横幅 + 铃声 + 系统通知。
       const cold = coldStartRef.current
       coldStartRef.current = false
-      const missed = cold ? toMark.filter(m => m.dueTs != null && now - m.dueTs > 90000) : []
-      const fresh = cold ? toMark.filter(m => !missed.includes(m)) : toMark
       const toFire = []
-      fresh.forEach(item => {
+      toMark.forEach(item => {
         const title = item.kind === 'node' ? '🔔 节点闹钟提醒' : '🔔 打卡提醒'
         const message = item.kind === 'node'
           ? `任务「${item.title || '未命名节点'}」到达设定时间：${formatReminderTime(item.isoTime)}，请及时开始或延后。`
           : `「${item.title || '未命名任务'}」到了提醒时间 ${item.hm}，记得完成打卡哦。`
-        // 应用内可见性：顶部横幅（微信式）；App 外由 toFire 的系统通知（横幅/全屏意图）负责
-        showTopReminder(title, message)
-        toFire.push({ title, message })
+        showTopReminder(title, message)               // 应用内视觉横幅（冷启动也显示，但无声）
+        if (!cold) toFire.push({ title, message })    // 非冷启动才响铃 + 发系统通知横幅
       })
       // 微信式前台提示音：与通知渠道/闹钟/权限完全解耦，App 在前台时直接播放（必响）。
-      if (fresh.length > 0) playAlertSound()
+      if (!cold && toFire.length > 0) playAlertSound()
       if (isCapRun()) {
         // 冷启动：静默清理原生积压的过期提醒（不响铃不弹），避免守护/闹钟随后再补一响
         const fired = await fireNativeDueNow({ silent: cold })
         if (!fired && toFire.length) toFire.forEach(x => notifyNativeNow(x.title, x.message))
       } else {
         toFire.forEach(x => notifyNow(x.title, x.message))
-      }
-      if (missed.length > 0) {
-        dispatch({ type: 'PUSH_MODAL', payload: { type: 'toast', message: `ℹ️ 已静默忽略 ${missed.length} 条错过的提醒`, duration: 1600 } })
       }
       // 原生壳（APK）：把未来提醒同步注册到 Android 系统时钟（锁屏/杀进程可靠触发）
       syncNativeReminders()
