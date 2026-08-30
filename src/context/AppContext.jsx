@@ -413,6 +413,7 @@ export function AppProvider({ children }) {
   stateRef.current = state
   const pollTimerRef = useRef(null)
   const nextTimeoutRef = useRef(null)
+  const coldStartRef = useRef(true)   // 冷启动首扫：错过的提醒静默处理（不响铃不横幅）。必须在组件顶层（Hook 规则）
   useEffect(() => {
     // 首次用户交互时申请系统通知权限（浏览器要求尽量在手势里请求）
     const requestPerm = () => ensureNotifyPermission()
@@ -497,7 +498,6 @@ export function AppProvider({ children }) {
       } catch (e) { /* 原生同步失败静默（网页环境会因 isCapRun 提前返回） */ }
       finally { nativeSyncing = false }
     }
-    const coldStartRef = useRef(true)   // 冷启动首扫：错过的提醒静默处理（不响铃不横幅）
     const checkDue = async () => {
       const now = Date.now()
       const s = stateRef.current
