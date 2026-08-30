@@ -72,3 +72,20 @@ export async function openFullScreenIntentSettings() {
     return false
   }
 }
+
+/** 提醒链路状态（通知权限/全屏通知/电池白名单/守护服务/渠道重要级）——引导卡实时显示用 */
+export async function getReminderStatus() {
+  try {
+    const r = await AppBridge.getReminderStatus()
+    return {
+      notificationsEnabled: !!r.notificationsEnabled,
+      fsiGranted: r.fsiGranted !== false,
+      batteryIgnored: !!r.batteryIgnored,
+      guardRunning: !!r.guardRunning,
+      pendingCount: typeof r.pendingCount === 'number' ? r.pendingCount : -1,
+      channelImportance: typeof r.channelImportance === 'number' ? r.channelImportance : -1,
+    }
+  } catch (e) {
+    return null
+  }
+}

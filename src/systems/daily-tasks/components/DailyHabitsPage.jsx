@@ -7,7 +7,7 @@ import WheelTimePicker from './habits/WheelTimePicker.jsx'
 import BatchCheckinModal from './habits/BatchCheckinModal.jsx'
 import PomodoroModal from './habits/PomodoroModal.jsx'
 import { pushBackHandler } from '../../../utils/backStack.js'
-import { openNotificationSettings, openAppDetailsSettings, openFullScreenIntentSettings } from '../../../services/device.js'
+import { openNotificationSettings, openAppDetailsSettings, openFullScreenIntentSettings, getReminderStatus } from '../../../services/device.js'
 
 /**
  * 双页打卡真实交互版
@@ -292,39 +292,68 @@ export default function DailyHabitsPage() {
   )
 }
 
-/** 一次性熄屏/后台提醒设置引导（✕ 关闭后 localStorage 记忆不再出现）。
- *  为什么需要：MIUI 对三方 App 默认 悬浮通知=关 / 锁屏通知=关 / 自启动=禁止，
- *  这三项均为系统级开关，代码无法代开——缺任何一项，熄屏/后台到点就不横幅、不响铃。 */
+/** 提醒链路状态卡：逐项实时显示 ✅/❌ —— App 外横幅能不能弹，取决于这几项系统开关。
+ *  每次回到前台自动刷新状态；全部就绪时收起为一条绿色提示。 */
 function ReminderSetupBanner() {
   const [hidden, setHidden] = useState(() => {
     try { return localStorage.getItem('reminderSetupDone') === '1' } catch (e) { return false }
   })
+  const [st, setSt] = useState(null)
+
+  useEffect(() => {
+    let alive = true
+    const refresh = () => { getReminderStatus().then((s) => { if (alive && s) setSt(s) }) }
+    refresh()
+    const onVis = () => { if (document.visibilityState === 'visible') refresh() }
+    document.addEventListener('visibilitychange', onVis)
+    window.addEventListener('focus', onVis)
+    return () => {
+      alive = false
+      document.removeEventListener('visibilitychange', onVis)
+      window.removeEventListener('focus', onVis)
+    }
+  }, [])
+
   if (hidden) return null
   const done = () => {
     try { localStorage.setItem('reminderSetupDone', '1') } catch (e) { /* ignore */ }
     setHidden(true)
   }
   const jumpBtn = 'ml-1.5 px-1.5 py-0.5 rounded bg-amber-100 hover:bg-amber-200 text-amber-900 font-semibold touch-feedback shrink-0'
+  const mark = (ok) => (st ? (ok ? '✅' : '❌') : '·')
+
+  // 全部就绪 → 收起为一条绿色提示（悬浮通知为 MIUI 手动开关，无法读取，仍保留一句提醒）
+  if (st && st.notificationsEnabled && st.fsiGranted && st.batteryIgnored && st.guardRunning) {
+    return (
+      <div className="bg-emerald-50 border border-emerald-200 rounded-2xl px-3 py-2 mb-4 shrink-0 text-xs text-emerald-700 flex items-center justify-between gap-2">
+        <span>✅ 提醒链路就绪（App 外到点会横幅+响铃；若仍无横幅，请到系统设置→通知→成长小美→「成长提醒」确认「悬浮通知」已开）</span>
+        <button onClick={done} className="w-6 h-6 rounded-md hover:bg-emerald-100 text-emerald-500 shrink-0" title="不再显示">✕</button>
+      </div>
+    )
+  }
+
   return (
     <div className="bg-amber-50 border border-amber-200 rounded-2xl p-3 mb-4 shrink-0 text-xs text-amber-800">
       <div className="flex items-start justify-between gap-2">
-        <div className="font-bold">📣 让熄屏/后台提醒准时响（一次性设置，约 30 秒）</div>
+        <div className="font-bold">📣 App 外提醒（微信式横幅）未完全就绪，按 ❌ 逐项开启：</div>
         <button onClick={done} className="w-6 h-6 -mt-0.5 -mr-0.5 rounded-md hover:bg-amber-100 text-amber-500 shrink-0" title="不再显示">✕</button>
       </div>
       <div className="mt-1.5 space-y-1.5 leading-relaxed">
         <div className="flex items-center">
-          <span>① 通知设置 → 点「成长提醒」渠道：悬浮通知 / 锁屏通知 / 声音 全开（顶部弹横幅的关键）</span>
+          <span>{mark(st ? st.notificationsEnabled : null)} 通知权限 + 「成长提醒」渠道：悬浮通知 / 锁屏通知 / 声音 全开</span>
           <button onClick={() => openNotificationSettings()} className={jumpBtn}>去开启 ›</button>
         </div>
         <div className="flex items-center">
-          <span>② 全屏通知 = 允许（熄屏到点点亮屏幕弹出横幅）</span>
+          <span>{mark(st ? st.fsiGranted : null)} 全屏通知 = 允许（熄屏到点点亮屏幕弹出）</span>
           <button onClick={() => openFullScreenIntentSettings()} className={jumpBtn}>去开启 ›</button>
         </div>
         <div className="flex items-center">
-          <span>③ 自启动 = 允许、省电策略 = 无限制（后台到点不被系统杀）</span>
+          <span>{mark(st ? st.batteryIgnored : null)} 自启动 = 允许、省电策略 = 无限制（后台到点不被杀）</span>
           <button onClick={() => openAppDetailsSettings()} className={jumpBtn}>去开启 ›</button>
         </div>
-        <div className="text-amber-700">④ 电池优化白名单已在首次启动自动申请；若点了拒绝，可在③的应用详情里改「省电策略」</div>
+        <div className="flex items-center">
+          <span>{mark(st ? st.guardRunning : null)} 提醒守护服务运行中{st && st.guardRunning ? `（待触发 ${st.pendingCount >= 0 ? st.pendingCount : '?'} 条）` : '（回到本页会自动拉起；最近任务卡片🔒锁定更稳）'}</span>
+        </div>
       </div>
     </div>
   )

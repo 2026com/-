@@ -239,6 +239,38 @@ public class AppBridgePlugin extends Plugin {
         }
     }
 
+    /** 提醒链路状态诊断：通知权限 / 全屏通知授权 / 电池优化白名单 / 守护服务存活 / 待触发条数 / 渠道重要级 */
+    @PluginMethod
+    public void getReminderStatus(PluginCall call) {
+        try {
+            Context ctx = getContext();
+            android.app.NotificationManager nm =
+                    (android.app.NotificationManager) ctx.getSystemService(Context.NOTIFICATION_SERVICE);
+            boolean enabled = androidx.core.app.NotificationManagerCompat.from(ctx).areNotificationsEnabled();
+            boolean fsi = true;   // Android 13 及以下：声明 USE_FULL_SCREEN_INTENT 即随通知权限自动授予
+            if (android.os.Build.VERSION.SDK_INT >= 34 && nm != null) {
+                fsi = nm.canUseFullScreenIntent();
+            }
+            android.os.PowerManager pm = (android.os.PowerManager) ctx.getSystemService(Context.POWER_SERVICE);
+            boolean batt = pm != null && pm.isIgnoringBatteryOptimizations(ctx.getPackageName());
+            int channelImportance = -1;
+            if (nm != null && android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+                android.app.NotificationChannel c = nm.getNotificationChannel(NotificationChannelsHelper.NOTIFY);
+                if (c != null) channelImportance = c.getImportance();
+            }
+            JSObject ret = new JSObject();
+            ret.put("notificationsEnabled", enabled);
+            ret.put("fsiGranted", fsi);
+            ret.put("batteryIgnored", batt);
+            ret.put("guardRunning", ReminderGuardService.isRunning());
+            ret.put("pendingCount", NotificationScheduler.pendingCount(ctx));
+            ret.put("channelImportance", channelImportance);
+            call.resolve(ret);
+        } catch (Exception e) {
+            call.reject("查询失败: " + e.getMessage());
+        }
+    }
+
     /** 跳转本应用系统「通知设置」页（悬浮通知/锁屏通知/声音，仅需设置一次） */
     @PluginMethod
     public void openNotificationSettings(PluginCall call) {
