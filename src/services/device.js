@@ -84,6 +84,17 @@ export async function openChannelSettings() {
   }
 }
 
+/** 跳转 MIUI「应用权限」编辑页（后台弹出界面等 MIUI 特有权限）；非 MIUI 回退应用详情页 */
+export async function openMiuiPermissionEditor() {
+  try {
+    await AppBridge.openMiuiPermissionEditor()
+    return true
+  } catch (e) {
+    console.warn('[device] 打开MIUI权限编辑失败:', e && e.message)
+    return false
+  }
+}
+
 /** 提醒链路状态（通知权限/全屏通知/电池白名单/守护服务/渠道重要级）——引导卡实时显示用 */
 export async function getReminderStatus() {
   try {

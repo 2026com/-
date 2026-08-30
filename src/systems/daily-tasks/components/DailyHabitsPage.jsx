@@ -7,7 +7,7 @@ import WheelTimePicker from './habits/WheelTimePicker.jsx'
 import BatchCheckinModal from './habits/BatchCheckinModal.jsx'
 import PomodoroModal from './habits/PomodoroModal.jsx'
 import { pushBackHandler } from '../../../utils/backStack.js'
-import { openNotificationSettings, openAppDetailsSettings, openFullScreenIntentSettings, openChannelSettings, getReminderStatus } from '../../../services/device.js'
+import { openNotificationSettings, openAppDetailsSettings, openFullScreenIntentSettings, openChannelSettings, openMiuiPermissionEditor, getReminderStatus } from '../../../services/device.js'
 import { notifyNativeNow } from '../../../utils/notify.js'
 
 /**
@@ -360,6 +360,10 @@ function ReminderSetupBanner() {
         <div className="flex items-center">
           <span>{mark(st ? st.fsiGranted : null)} 全屏通知 = 允许（熄屏到点点亮屏幕弹出）</span>
           <button onClick={() => openFullScreenIntentSettings()} className={jumpBtn}>去开启 ›</button>
+        </div>
+        <div className="flex items-center">
+          <span>{'·'} 后台弹出界面 = 允许（MIUI 特有权限，后台弹横幅的前提之一）</span>
+          <button onClick={() => openMiuiPermissionEditor()} className={jumpBtn}>去开启 ›</button>
         </div>
         <div className="flex items-center">
           <span>{mark(st ? st.batteryIgnored : null)} 自启动 = 允许、省电策略 = 无限制（后台到点不被杀）</span>

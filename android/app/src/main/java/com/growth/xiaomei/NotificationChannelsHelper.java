@@ -59,15 +59,25 @@ public final class NotificationChannelsHelper {
                     }
                 } catch (Throwable t) { /* ignore */ }
                 // ② 守护服务渠道（MIN：无声、不横幅；前台服务必需）
+                // 【自愈·关键】渠道一经创建即归用户管理：早期版本用户可能在系统设置里
+                // 手动给「提醒守护」开过声音（App 事后改不动用户已拥有的渠道）——
+                // 导致守护服务每次启动（= 每次进 App）startForeground 都响一声「闹铃」，
+                // 正是「每次进 App 必响」的真凶。检测到被改过 → 删除重建恢复无声。
                 try {
-                    if (nm.getNotificationChannel(CH_GUARD) == null) {
-                        NotificationChannel g = new NotificationChannel(CH_GUARD, "提醒守护",
+                    NotificationChannel g = nm.getNotificationChannel(CH_GUARD);
+                    if (g != null && (g.getSound() != null || g.shouldVibrate()
+                            || g.getImportance() > NotificationManager.IMPORTANCE_MIN)) {
+                        nm.deleteNotificationChannel(CH_GUARD);
+                        g = null;
+                    }
+                    if (g == null) {
+                        NotificationChannel gc = new NotificationChannel(CH_GUARD, "提醒守护",
                                 NotificationManager.IMPORTANCE_MIN);
-                        g.setDescription("保持提醒准时的后台服务通知（无声）");
-                        g.setSound(null, null);
-                        g.enableVibration(false);
-                        g.setLockscreenVisibility(Notification.VISIBILITY_SECRET);
-                        nm.createNotificationChannel(g);
+                        gc.setDescription("保持提醒准时的后台服务通知（无声）");
+                        gc.setSound(null, null);
+                        gc.enableVibration(false);
+                        gc.setLockscreenVisibility(Notification.VISIBILITY_SECRET);
+                        nm.createNotificationChannel(gc);
                     }
                 } catch (Throwable t) { /* ignore */ }
                 // ③ 清理历史废弃渠道

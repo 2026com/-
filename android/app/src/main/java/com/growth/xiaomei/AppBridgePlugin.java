@@ -239,6 +239,34 @@ public class AppBridgePlugin extends Plugin {
         }
     }
 
+    /** 跳转 MIUI「应用权限」编辑页（含 后台弹出界面 等 MIUI 特有权限）；非 MIUI 自动回退应用详情页 */
+    @PluginMethod
+    public void openMiuiPermissionEditor(PluginCall call) {
+        Activity activity = getActivity();
+        if (activity == null) { call.reject("activity unavailable"); return; }
+        activity.runOnUiThread(new Runnable() {
+            @Override public void run() {
+                try {
+                    android.content.Intent i = new android.content.Intent("miui.intent.action.APP_PERM_EDITOR");
+                    i.setClassName("com.miui.securitycenter", "com.miui.permcenter.permissions.PermissionsEditorActivity");
+                    i.putExtra("extra_pkgname", activity.getPackageName());
+                    activity.startActivity(i);
+                    call.resolve();
+                } catch (Throwable t) {
+                    // 非 MIUI 或安全中心组件不存在 → 回退应用详情页
+                    try {
+                        android.content.Intent f = new android.content.Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS);
+                        f.setData(android.net.Uri.fromParts("package", activity.getPackageName(), null));
+                        activity.startActivity(f);
+                        call.resolve();
+                    } catch (Throwable t2) {
+                        call.reject("跳转失败: " + t2.getMessage());
+                    }
+                }
+            }
+        });
+    }
+
     /** 提醒链路状态诊断：通知权限 / 全屏通知授权 / 电池优化白名单 / 守护服务存活 / 待触发条数 / 渠道重要级 */
     @PluginMethod
     public void getReminderStatus(PluginCall call) {

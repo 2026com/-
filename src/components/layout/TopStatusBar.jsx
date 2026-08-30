@@ -3,7 +3,7 @@ import { useAppState, useAppDispatch } from '../../context/AppContext.jsx'
 import { useMemo } from 'react'
 import { dateUtil } from '../../utils/storage.js'
 import { useAppTheme, toggleTheme } from '../../services/theme.js'
-import { getReminderStatus, openChannelSettings, openFullScreenIntentSettings, openAppDetailsSettings } from '../../services/device.js'
+import { getReminderStatus, openChannelSettings, openFullScreenIntentSettings, openAppDetailsSettings, openMiuiPermissionEditor } from '../../services/device.js'
 import { notifyNativeNow } from '../../utils/notify.js'
 import { pushBackHandler } from '../../utils/backStack.js'
 import { BUILD_TAG } from '../../buildInfo.js'
@@ -207,6 +207,10 @@ export default function TopStatusBar() {
                 <div className="flex items-center justify-between gap-2">
                   <span>{rmark(remSt ? remSt.fsiGranted : false)} 全屏通知（熄屏点亮弹出）</span>
                   <button onClick={() => openFullScreenIntentSettings()} className="px-2 py-1 rounded-lg text-xs bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 touch-feedback">去开启 ›</button>
+                </div>
+                <div className="flex items-center justify-between gap-2">
+                  <span>· 后台弹出界面（MIUI 特有）</span>
+                  <button onClick={() => openMiuiPermissionEditor()} className="px-2 py-1 rounded-lg text-xs bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 touch-feedback">去开启 ›</button>
                 </div>
                 <div className="flex items-center justify-between gap-2">
                   <span>{rmark(remSt ? remSt.batteryIgnored : false)} 自启动 / 省电策略</span>
