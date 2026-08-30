@@ -49,38 +49,19 @@ public final class NotificationScheduler {
         });
     }
 
-    /** 武装定时：setAlarmClock（用户级闹钟，最高优先级）→ 精确闹钟 → 非精确闹钟；已过期立即弹。
-     *  每次尝试结果持久化（自检回读定位 ROM 对哪级闹钟放行）。 */
+    /** 武装定时：setExactAndAllowWhileIdle（精确闹钟，DOZE 也触发）→ 非精确兜底；已过期立即弹。
+     *  【关键变更】弃用 setAlarmClock（用户级闹钟语义）：
+     *  MIUI 会把「后台期间错过的 setAlarmClock 闹钟」延迟到 App 下次启动时用
+     *  【系统闹钟音】补响——那不是我们的通知声，通知层（迟到抑制）拦不住，
+     *  正是「每次进 App 必响守护提醒音乐」的真凶。改用纯 setExact 语义后，
+     *  延迟补发走我们的接收器 → 迟到抑制（晚 60 秒以上静默丢弃）。 */
     private static void armAlarm(Context ctx, int id, String title, String body, long atMs) {
         long now = System.currentTimeMillis();
         if (atMs <= now + 500) { fireNow(ctx, id, title, body); return; }
         AlarmManager am = (AlarmManager) ctx.getSystemService(Context.ALARM_SERVICE);
         if (am == null) { setLastAlarmResult(ctx, "failed(no service)"); fireNow(ctx, id, title, body); return; }
         PendingIntent pi = alarmPendingIntent(ctx, id, title, body, atMs);
-        // ① setAlarmClock：用户可见闹钟（状态栏闹钟图标），ROM 清理后台不取消、DOZE 必触发
-        try {
-            AlarmManager.AlarmClockInfo info = new AlarmManager.AlarmClockInfo(atMs, contentPendingIntent(ctx, id));
-            am.setAlarmClock(info, pi);
-            // 回读验证：部分 ROM（K60 实测）会「接受调用但不登记」——状态栏无闹钟图标、到点不响。
-            // 用系统下一次闹钟回读区分「真设上」与「被静默吞掉」，供自检界面展示。
-            try {
-                AlarmManager.AlarmClockInfo cur = am.getNextAlarmClock();
-                if (cur == null) {
-                    setLastAlarmResult(ctx, "alarm_clock未登记(ROM未接受)");
-                } else if (cur.getTriggerTime() == atMs) {
-                    setLastAlarmResult(ctx, "alarm_clock");
-                } else {
-                    // 系统登记了更早的另一枚闹钟（如其他闹钟App），本条无法确认，按已接受处理
-                    setLastAlarmResult(ctx, "alarm_clock(系统登记了更早的其他闹钟)");
-                }
-            } catch (Throwable t) {
-                setLastAlarmResult(ctx, "alarm_clock"); // 回读挂起/失败不影响「已设上」假设
-            }
-            return;
-        } catch (Throwable e) {
-            setLastAlarmResult(ctx, "alarm_clock失败:" + e.getClass().getSimpleName());
-        }
-        // ② 精确闹钟
+        // ① 精确闹钟（允许在 DOZE 中触发）
         try {
             am.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, atMs, pi);
             setLastAlarmResult(ctx, "exact");
@@ -88,7 +69,7 @@ public final class NotificationScheduler {
         } catch (Throwable e) {
             setLastAlarmResult(ctx, "exact失败:" + e.getClass().getSimpleName());
         }
-        // ③ 非精确（可能延迟几分钟）；仍失败由 guard 服务兜底
+        // ② 非精确兜底（可能延迟几分钟）；仍失败由 guard 服务兜底
         try {
             am.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, atMs, pi);
             setLastAlarmResult(ctx, "inexact");
