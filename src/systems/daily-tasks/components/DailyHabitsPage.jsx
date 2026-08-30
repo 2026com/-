@@ -8,7 +8,7 @@ import BatchCheckinModal from './habits/BatchCheckinModal.jsx'
 import PomodoroModal from './habits/PomodoroModal.jsx'
 import { pushBackHandler } from '../../../utils/backStack.js'
 import { openNotificationSettings, openAppDetailsSettings, openFullScreenIntentSettings, openChannelSettings, openMiuiPermissionEditor, getReminderStatus } from '../../../services/device.js'
-import { notifyNativeNow } from '../../../utils/notify.js'
+import { notifyNativeNow, scheduleNativeNotification } from '../../../utils/notify.js'
 
 /**
  * 双页打卡真实交互版
@@ -296,6 +296,7 @@ export default function DailyHabitsPage() {
 /** 提醒链路状态卡：逐项实时显示 ✅/❌ —— App 外横幅能不能弹，取决于这几项系统开关。
  *  每次回到前台自动刷新状态；全部就绪时收起为一条绿色提示。 */
 function ReminderSetupBanner() {
+  const dispatch = useAppDispatch()
   const [hidden, setHidden] = useState(() => {
     // V2：旧版引导卡与新版状态卡共用过 key，换新 key 让状态卡重新出现一次
     try { return localStorage.getItem('reminderSetupDoneV2') === '1' } catch (e) { return false }
@@ -329,6 +330,19 @@ function ReminderSetupBanner() {
     try { await notifyNativeNow('🔔 测试横幅', '看到这条从顶部弹出 = App 外提醒通道畅通 ✅') } catch (e) { /* ignore */ }
     setTimeout(() => setTesting(false), 2000)
   }
+  // 后台横幅测试：排定 5 秒后触发 → 用户回桌面/熄屏 → 验证「后台发出的通知」有没有横幅
+  const testBgBanner = async () => {
+    const ok = await scheduleNativeNotification({
+      id: 'bgtest-' + Date.now(),
+      title: '⏱ 后台横幅测试',
+      body: '在桌面/熄屏看到此横幅 = 后台提醒链路畅通 ✅',
+      at: Date.now() + 5000,
+    })
+    setHidden(false)
+    setTimeout(() => {
+      dispatch({ type: 'PUSH_MODAL', payload: { type: 'toast', message: ok ? '⏱ 已排定 5 秒测试：请立刻回桌面（或熄屏）等待横幅' : '⚠️ 仅 APK 环境可测', duration: 3000 } })
+    }, 200)
+  }
 
   // 全部就绪 → 收起为一条绿色提示（悬浮通知为 MIUI 手动开关，无法读取，仍保留一句提醒）
   if (st && st.notificationsEnabled && st.fsiGranted && st.batteryIgnored && st.guardRunning) {
@@ -337,6 +351,7 @@ function ReminderSetupBanner() {
         <span>✅ 提醒链路就绪（App 外到点会横幅+响铃）。点「测试」立即验证横幅是否弹出</span>
         <div className="flex items-center gap-1 shrink-0">
           <button onClick={testBanner} className="px-1.5 py-0.5 rounded bg-emerald-100 hover:bg-emerald-200 text-emerald-800 font-semibold touch-feedback">{testing ? '已发送…' : '📢 测试'}</button>
+          <button onClick={testBgBanner} className="px-1.5 py-0.5 rounded bg-indigo-100 hover:bg-indigo-200 text-indigo-800 font-semibold touch-feedback" title="排定 5 秒后触发，点后立刻回桌面/熄屏">⏱ 后台测</button>
           <button onClick={done} className="w-6 h-6 rounded-md hover:bg-emerald-100 text-emerald-500" title="不再显示">✕</button>
         </div>
       </div>
@@ -349,6 +364,7 @@ function ReminderSetupBanner() {
         <div className="font-bold">📣 App 外提醒（微信式横幅）未完全就绪，按 ❌ 逐项开启：</div>
         <div className="flex items-center gap-1 shrink-0">
           <button onClick={testBanner} className="px-1.5 py-0.5 rounded bg-sky-100 hover:bg-sky-200 text-sky-800 font-semibold touch-feedback">{testing ? '已发送…' : '📢 测试横幅'}</button>
+          <button onClick={testBgBanner} className="px-1.5 py-0.5 rounded bg-indigo-100 hover:bg-indigo-200 text-indigo-800 font-semibold touch-feedback" title="排定 5 秒后触发，点后立刻回桌面/熄屏">⏱ 后台测</button>
           <button onClick={done} className="w-6 h-6 -mt-0.5 rounded-md hover:bg-amber-100 text-amber-500" title="不再显示">✕</button>
         </div>
       </div>

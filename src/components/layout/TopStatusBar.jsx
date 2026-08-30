@@ -4,7 +4,7 @@ import { useMemo } from 'react'
 import { dateUtil } from '../../utils/storage.js'
 import { useAppTheme, toggleTheme } from '../../services/theme.js'
 import { getReminderStatus, openChannelSettings, openFullScreenIntentSettings, openAppDetailsSettings, openMiuiPermissionEditor } from '../../services/device.js'
-import { notifyNativeNow } from '../../utils/notify.js'
+import { notifyNativeNow, scheduleNativeNotification } from '../../utils/notify.js'
 import { pushBackHandler } from '../../utils/backStack.js'
 import { BUILD_TAG } from '../../buildInfo.js'
 
@@ -101,6 +101,19 @@ export default function TopStatusBar() {
       }
     } catch (e) { /* ignore */ }
     setTimeout(() => window.location.reload(), 300)
+  }
+  // 后台横幅测试：排定 5 秒后触发 → 用户回桌面/熄屏 → 验证「后台发出的通知」有没有横幅
+  const testBgBanner = async () => {
+    const ok = await scheduleNativeNotification({
+      id: 'bgtest-' + Date.now(),
+      title: '⏱ 后台横幅测试',
+      body: '在桌面/熄屏看到此横幅 = 后台提醒链路畅通 ✅',
+      at: Date.now() + 5000,
+    })
+    setRemPanel(false)
+    setTimeout(() => {
+      dispatch({ type: 'PUSH_MODAL', payload: { type: 'toast', message: ok ? '⏱ 已排定 5 秒测试：请立刻回桌面（或熄屏）等待横幅' : '⚠️ 仅 APK 环境可测', duration: 3000 } })
+    }, 200)
   }
   const rmark = (ok) => (remSt ? (ok ? '✅' : '❌') : '…')
 
@@ -221,8 +234,11 @@ export default function TopStatusBar() {
                 </div>
               </div>
               <div className="mt-4 flex gap-2">
-                <button onClick={testBanner} className="flex-1 px-3 py-2 rounded-lg text-xs font-semibold bg-indigo-600 hover:bg-indigo-500 text-white touch-feedback">{testing ? '已发送…' : '📢 测试横幅'}</button>
+                <button onClick={testBanner} className="flex-1 px-3 py-2 rounded-lg text-xs font-semibold bg-indigo-600 hover:bg-indigo-500 text-white touch-feedback">{testing ? '已发送…' : '📢 测试横幅(前台)'}</button>
                 <button onClick={cleanReload} className="px-3 py-2 rounded-lg text-xs bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 touch-feedback" title="反注册SW+清缓存后重载（排查旧包残留）">🧹 清缓存重载</button>
+              </div>
+              <div className="mt-2">
+                <button onClick={testBgBanner} className="w-full px-3 py-2 rounded-lg text-xs font-semibold bg-sky-600 hover:bg-sky-500 text-white touch-feedback">⏱ 后台横幅测试（点后立刻回桌面/熄屏，5 秒后应弹横幅）</button>
               </div>
               <div className="mt-2 text-[11px] text-slate-400 leading-relaxed">
                 「悬浮通知」是 MIUI 手动开关：点📢测试若不弹横幅，回第①项把渠道「悬浮通知」打开即可。面板顶部的版本号用于确认手机上跑的是不是新包。
