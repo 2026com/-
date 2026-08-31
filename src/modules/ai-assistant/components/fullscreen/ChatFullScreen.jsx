@@ -37,6 +37,7 @@ export default function ChatFullScreen({
   aiConfig, onOpenConfig,
   sessions, currentSessionId, onNewChat, onSwitchSession, onDeleteSession, onClearAllSessions,
   onSwitchProvider,
+  onPickImage,
   onExitFullscreen,
 }) {
   const [historyOpen, setHistoryOpen] = useState(false)
@@ -183,6 +184,13 @@ export default function ChatFullScreen({
               {meta.label}
               <span className="text-slate-400">▾</span>
             </button>
+            {/* 发图片换背景（图片不经 AI，选图后选择设为知识库/记忆库/横线本背景） */}
+            <button
+              onClick={onPickImage}
+              className="shrink-0 w-9 h-9 rounded-full text-slate-500 dark:text-slate-300 hover:bg-slate-200/60 dark:hover:bg-slate-700 flex items-center justify-center text-base touch-feedback"
+              title="发图片换背景"
+              aria-label="发图片换背景"
+            >🖼️</button>
             <textarea
               value={inputValue}
               onChange={(e) => setInputValue(e.target.value)}

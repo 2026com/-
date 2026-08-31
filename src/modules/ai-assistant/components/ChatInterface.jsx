@@ -9,6 +9,8 @@ import { dbGet, dbSet } from '../../../services/db.js'
 import { pushBackHandler } from '../../../utils/backStack.js'
 import { createPortal } from 'react-dom'
 import ChatFullScreen, { PROVIDER_META } from './fullscreen/ChatFullScreen.jsx'
+import { parseBackgroundAction, confirmBackgroundAction } from '../services/appActions.js'
+import { compressImageForBackground, setBackground, resetBackground, SURFACE_NAMES } from '../../../services/backgrounds.js'
 
 /**
  * 常驻可收起侧边 AI 对话窗口
@@ -257,6 +259,48 @@ export default function AIChatSidebar({ onOpenConfig, embedded = false }) {
     dispatch({ type: 'PUSH_MODAL', payload: { type: 'toast', message: `✅ 已切换到 ${meta.label}${target.apiKey ? '' : '（未配置 Key，⚙️ 里填写）'}` } })
   }
 
+  // ==================== 聊天图片附件 → 换背景（图片不经 AI 模型，直接压缩设为背景） ====================
+  const imageInputRef = useRef(null)
+  const [bgImagePick, setBgImagePick] = useState(null) // { dataUrl } 待选目标的图片
+
+  const handlePickImageFile = async (e) => {
+    const file = e.target.files?.[0]
+    e.target.value = ''
+    if (!file) return
+    try {
+      const dataUrl = await compressImageForBackground(file)
+      setBgImagePick({ dataUrl })
+    } catch (err) {
+      dispatch({ type: 'PUSH_MODAL', payload: { type: 'toast', message: '⚠️ 图片读取失败，请换一张试试' } })
+    }
+  }
+
+  const handleSetBgImage = (surface) => {
+    if (!bgImagePick) return
+    const ok = setBackground(surface, { type: 'image', dataUrl: bgImagePick.dataUrl })
+    if (ok) {
+      setBgImagePick(null)
+      dispatch({ type: 'PUSH_MODAL', payload: { type: 'toast', message: `🎨 已设为「${SURFACE_NAMES[surface]}」背景，对 AI 说「恢复默认背景」即可还原` } })
+    }
+  }
+
+  const handleResetAllBg = () => {
+    dispatch({
+      type: 'PUSH_MODAL',
+      payload: {
+        type: 'confirm',
+        title: '还原全部默认背景？',
+        message: '3D 知识库、记忆库、横线本三处背景都将恢复默认外观。',
+        okText: '还原',
+        onOk: () => {
+          resetBackground('all')
+          setBgImagePick(null)
+          dispatch({ type: 'PUSH_MODAL', payload: { type: 'toast', message: '↺ 已还原全部默认背景' } })
+        }
+      }
+    })
+  }
+
   // ================ 折叠态浮球可拖动（仅垂直方向，右侧贴边保持不变） ================
   const FAB_STORAGE_KEY = 'ai.fab.position.v1'
   const FAB_W = 44          // 浮球视觉宽度（约 px-2.5 = 10px 左右，给一个近似值用于边界计算）
@@ -417,6 +461,9 @@ export default function AIChatSidebar({ onOpenConfig, embedded = false }) {
       const finalText = String(aiContent || '').trim() || '（模型返回了空回答，请重试）'
       const aiMsg = { id: uid('msg'), role: 'assistant', content: finalText, createdAt: Date.now() }
       dispatch({ type: 'APPEND_AI_MESSAGE', payload: { message: aiMsg } })
+      // ===== 背景/皮肤指令：AI 回复若带白名单指令 → 弹确认后执行；白名单外 JSON 一律忽略（防提示词注入） =====
+      const bgAct = parseBackgroundAction(finalText)
+      if (bgAct) confirmBackgroundAction(bgAct, dispatch)
     } catch (err) {
       // ====== 真实调用失败：给出错误原文 + 下一步建议，不锁主流程 ======
       const errMsg = (err && err.message) ? String(err.message) : '网络异常'
@@ -656,6 +703,13 @@ export default function AIChatSidebar({ onOpenConfig, embedded = false }) {
           <div className="shrink-0 border-t border-slate-100 p-3 bg-slate-50/50">
             <div className="flex items-end gap-2 bg-white rounded-xl border border-slate-200 focus-within:border-indigo-400 focus-within:ring-2 focus-within:ring-indigo-100 transition-all p-2">
               <button
+                onClick={() => imageInputRef.current?.click()}
+                disabled={loading}
+                className="w-9 h-9 shrink-0 rounded-lg bg-slate-100 hover:bg-indigo-50 disabled:opacity-50 text-slate-500 hover:text-indigo-600 flex items-center justify-center text-base transition-all touch-feedback"
+                title="发图片换背景（知识库/记忆库/横线本）"
+                aria-label="发图片换背景"
+              >🖼️</button>
+              <button
                 onClick={() => setImportOpen(true)}
                 disabled={loading}
                 className="w-9 h-9 shrink-0 rounded-lg bg-slate-100 hover:bg-indigo-50 disabled:opacity-50 text-slate-500 hover:text-indigo-600 flex items-center justify-center text-base transition-all touch-feedback"
@@ -692,6 +746,33 @@ export default function AIChatSidebar({ onOpenConfig, embedded = false }) {
         </div>
       </div>
 
+      {/* ============ 选图换背景：选择目标页面浮层（图片不经 AI，直接压缩设为背景） ============ */}
+      {bgImagePick && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-sm" onClick={() => setBgImagePick(null)}>
+          <div className="w-full max-w-xs bg-white dark:bg-slate-900 rounded-2xl shadow-2xl p-4" onClick={(e) => e.stopPropagation()}>
+            <div className="text-sm font-bold text-slate-800 dark:text-slate-100 mb-2">🖼️ 设为哪里的背景？</div>
+            <div
+              className="h-24 rounded-xl border border-slate-200 dark:border-slate-700 mb-3 bg-slate-100 dark:bg-slate-800 bg-cover bg-center"
+              style={{ backgroundImage: `url(${bgImagePick.dataUrl})` }}
+            />
+            <div className="grid grid-cols-3 gap-2 mb-2">
+              {['knowledge', 'memory', 'notebook'].map(s => (
+                <button
+                  key={s}
+                  onClick={() => handleSetBgImage(s)}
+                  className="py-2 rounded-lg bg-indigo-500 hover:bg-indigo-600 text-white text-xs font-bold touch-feedback"
+                >{SURFACE_NAMES[s]}</button>
+              ))}
+            </div>
+            <button
+              onClick={handleResetAllBg}
+              className="w-full py-2 text-[11px] text-slate-400 hover:text-rose-500 touch-feedback"
+            >↺ 一键还原全部默认背景</button>
+          </div>
+        </div>
+      )}
+      <input ref={imageInputRef} type="file" accept="image/*" style={{ display: 'none' }} onChange={handlePickImageFile} />
+
       {/* ============ 全屏对话（Portal 挂 body：盖过顶栏/底部Tab z-30，让位弹窗 z-50 / 悬浮球 z-60） ============ */}
       {fullscreen && embedded && createPortal(
         <ChatFullScreen
@@ -709,6 +790,7 @@ export default function AIChatSidebar({ onOpenConfig, embedded = false }) {
           onDeleteSession={handleDeleteSession}
           onClearAllSessions={handleClearAllSessions}
           onSwitchProvider={handleSwitchProvider}
+          onPickImage={() => imageInputRef.current?.click()}
           onExitFullscreen={() => setFullscreen(false)}
         />,
         document.body

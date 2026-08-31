@@ -8,6 +8,7 @@ import { GRAPH_CATEGORIES, CATEGORY_MAP } from '../services/mockKnowledgeGraph.j
 import { buildDemoGraph, buildUserGraph, loadUserNodes, saveUserNodes, makeKnowledgeId } from '../services/userKnowledge.js'
 import { makeLabelTexture, getGlowTexture, makeDotTexture } from '../services/graphTextures.js'
 import { dbGet, dbSet } from '../../../services/db.js'
+import { useSurfaceBackground } from '../../../services/backgrounds.js'
 
 /**
  * 3D 知识图谱 —— 「知识宇宙」视觉版（KnowledgeGraph3D）
@@ -1161,6 +1162,8 @@ export default function KnowledgeGraph3D({
   const [canWebGL] = useState(detectWebGL)
   const [qualityPref, setQualityPref] = useState(readQualityPref) // 'auto' | 'hq' | 'lite'
   const [liteMode, setLiteMode] = useState(detectLowEndDevice)
+  // 背景/皮肤（纯新增）：AI 或图片换背景后即时生效；默认 null = 保留原星空渐变
+  const bgStyle = useSurfaceBackground('knowledge')
 
   // ===== 数据视图双轨：'user' = 我的知识库（真实数据，零起点）| 'demo' = 演示图谱（600 点示范，只读） =====
   // 支持 ?view=demo 直达演示；演示与用户数据完全隔离，正式包安装后默认为零渲染空状态
@@ -1305,7 +1308,7 @@ export default function KnowledgeGraph3D({
   // 不挂 Canvas（零 GPU 负担），只渲染 CSS 星空 + 生长引导
   if (!graph) {
     return (
-      <div className="relative h-full w-full bg-gradient-to-b from-[#0a1030] via-[#141b36] to-[#252b38] overflow-hidden">
+      <div className="relative h-full w-full bg-gradient-to-b from-[#0a1030] via-[#141b36] to-[#252b38] overflow-hidden" style={bgStyle || undefined}>
         <EmptySky />
         <div className="absolute inset-0 flex flex-col items-center justify-center text-center px-8">
           <div className="w-20 h-20 rounded-full bg-indigo-500/10 border border-indigo-500/25 flex items-center justify-center text-4xl mb-5 shadow-[0_0_40px_rgba(99,102,241,0.25)]">🧠</div>
@@ -1339,6 +1342,7 @@ export default function KnowledgeGraph3D({
   return (
     <div
       className="relative h-full w-full bg-gradient-to-b from-[#0a1030] via-[#141b36] to-[#252b38] overflow-hidden"
+      style={bgStyle || undefined}
       onPointerDown={onPointerDown}
       onPointerMove={onPointerMove}
     >

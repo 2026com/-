@@ -4,6 +4,10 @@ import { Billboard } from '@react-three/drei'
 import * as THREE from 'three'
 import { makeDotTexture } from '../../../knowledge-base/services/graphTextures.js'
 import { useAppTheme } from '../../../../services/theme.js'
+import { dbGet, dbSet } from '../../../../services/db.js'
+import { useSurfaceBackground } from '../../../../services/backgrounds.js'
+import LibraryDrawer from './memory-libs/LibraryDrawer.jsx'
+import { loadLibs, saveLibs, libToPages, DEFAULT_LIB_ID } from './memory-libs/memoryLibs.js'
 
 /**
  * 3D 记忆库 —— 「记忆环绕」V3（纯新增组件）
@@ -18,6 +22,7 @@ import { useAppTheme } from '../../../../services/theme.js'
  */
 
 const GOLD = ['#ffd98a', '#f5c86b', '#ffe9bd', '#e8b04b']          // 深色主题文字色
+const DEMO = typeof window !== 'undefined' && window.location.search.includes('gallerydemo')
 const INK = ['#4a4038', '#63513d', '#3c3c3c', '#7a5c3d']           // 浅色主题文字色
 const WEEKDAYS = ['星期日', '星期一', '星期二', '星期三', '星期四', '星期五', '星期六']
 const FONT = '"Kaiti SC", "STKaiti", KaiTi, "Noto Serif SC", "SimSun", serif'
@@ -34,6 +39,63 @@ function detectWebGL() {
     const c = document.createElement('canvas')
     return !!(c.getContext('webgl2') || c.getContext('webgl'))
   } catch { return false }
+}
+
+// ============ 画质档位（对齐知识宇宙的双档制）============
+
+const QUALITY_KEY = 'memoryUniverse.quality.v1'
+function readQualityPref() {
+  try {
+    const v = dbGet(QUALITY_KEY)
+    if (v === 'hq' || v === 'lite' || v === 'auto') return v
+  } catch { /* 读不到就回默认 */ }
+  return 'auto'
+}
+function writeQualityPref(v) {
+  try { dbSet(QUALITY_KEY, v) } catch { /* 忽略写入失败 */ }
+}
+function cycleQualityPref(pref) {
+  return pref === 'auto' ? 'hq' : pref === 'hq' ? 'lite' : 'auto'
+}
+
+/** 低端设备启发式（auto 档启动分级依据；运行时 PerfGuard 二次修正） */
+function detectLowEndDevice() {
+  if (typeof navigator === 'undefined') return false
+  try {
+    const mem = navigator.deviceMemory
+    const cores = navigator.hardwareConcurrency
+    const c = document.createElement('canvas')
+    const hasWebGL2 = !!c.getContext('webgl2')
+    return hasWebGL2 === false || (mem != null && mem <= 2) || (cores != null && cores <= 4)
+  } catch {
+    return true
+  }
+}
+
+/** 运行时性能监测：连续 2 个窗口（每个 2 秒）fps < 26 → 自动切入流畅模式（终态，不改用户偏好） */
+function PerfGuard({ onLite }) {
+  const frames = useRef(0)
+  const windowStart = useRef(performance.now())
+  const lowStreak = useRef(0)
+  const done = useRef(false)
+  useFrame(() => {
+    if (done.current) return
+    frames.current++
+    const now = performance.now()
+    const elapsed = now - windowStart.current
+    if (elapsed >= 2000) {
+      const fps = (frames.current / elapsed) * 1000
+      frames.current = 0
+      windowStart.current = now
+      if (fps < 26) lowStreak.current += 1
+      else lowStreak.current = 0
+      if (lowStreak.current >= 2) {
+        done.current = true
+        onLite()
+      }
+    }
+  })
+  return null
 }
 
 /** 固定种子伪随机（布局稳定可复现） */
@@ -204,8 +266,8 @@ function drawPaper(canvas, page, colors, imgs, vertical) {
 
 // ============ 场景组件 ============
 
-/** 背景微尘：跟随主题的暖色/冷灰微尘 */
-function Dust({ dark }) {
+/** 背景微尘：跟随主题的暖色/冷灰微尘（流畅档粒子减量） */
+function Dust({ dark, lite }) {
   const dotMap = useMemo(() => makeDotTexture(), [])
   useEffect(() => () => dotMap.dispose(), [dotMap])
   const layers = useMemo(() => {
@@ -224,10 +286,10 @@ function Dust({ dark }) {
       return g
     }
     return [
-      { geo: mk(380, 18, 60), size: 0.7 },
-      { geo: mk(130, 16, 46), size: 1.3 },
+      { geo: mk(lite ? 160 : 380, 18, 60), size: 0.7 },
+      { geo: mk(lite ? 60 : 130, 16, 46), size: 1.3 },
     ]
-  }, [])
+  }, [lite])
   useEffect(() => () => layers.forEach(l => l.geo.dispose()), [layers])
   const m0 = useRef(null)
   const m1 = useRef(null)
@@ -261,6 +323,7 @@ function seasonalColors(month, dark) {
 function TextStar({ strip, onTap, focusOn, focusPageId, introDelay = 0 }) {
   const groupRef = useRef(null)
   const matRef = useRef(null)
+  const focusK = useRef(0)
   const { camera } = useThree()
   const v3 = useMemo(() => new THREE.Vector3(), [])
   const base = useMemo(() => new THREE.Vector3(...strip.pos), [strip.pos])
@@ -282,8 +345,12 @@ function TextStar({ strip, onTap, focusOn, focusPageId, introDelay = 0 }) {
     // #1 开场聚拢：按序均匀逐个浮现（introDelay 均匀递增 → 出场量恒定），总时长约 3 秒
     const it = THREE.MathUtils.clamp((t - introDelay) / 1.4, 0, 1)
     const ease = it * it * (3 - 2 * it)
+    // #2 点击聚焦：被点中的那条向我们飘近并稍微放大，其余不受影响
+    const isFocused = focusOn && focusPageId === strip.pageId
+    focusK.current += ((isFocused ? 1 : 0) - focusK.current) * Math.min(1, dt * 3)
+    const pull = 0.22 * focusK.current
     if (groupRef.current) {
-      const f = (1 + Math.sin(t * 0.3 + phase) * 0.008) * (2.6 - 1.6 * ease)
+      const f = (1 + Math.sin(t * 0.3 + phase) * 0.008) * (2.6 - 1.6 * ease) * (1 - pull)
       groupRef.current.position.set(base.x * f, base.y * f, base.z * f)
       // 方案A+B：屏幕边缘渐隐 + 轻微退缩；深度薄雾：远处更朦胧
       groupRef.current.getWorldPosition(v3)
@@ -292,11 +359,9 @@ function TextStar({ strip, onTap, focusOn, focusPageId, introDelay = 0 }) {
       const edge = Math.max(Math.abs(v3.x), Math.abs(v3.y))
       edgeF = 1 - THREE.MathUtils.smoothstep(edge, 0.78, 0.99)
       fogF = THREE.MathUtils.clamp(1.3 - dist / 75, 0.55, 1)
-      groupRef.current.scale.setScalar((0.78 + 0.22 * edgeF) * (0.55 + 0.45 * ease))
+      groupRef.current.scale.setScalar((0.78 + 0.22 * edgeF) * (0.55 + 0.45 * ease) * (1 + 0.3 * focusK.current))
     }
-    // #2 聚焦阅读：未被选中的记忆淡入黑暗
-    const dimmed = focusOn && focusPageId !== strip.pageId ? 0.14 : 1
-    if (matRef.current) matRef.current.opacity = strip.bright * (0.82 + Math.sin(t * 0.7 + phase) * 0.18) * edgeF * fogF * ease * dimmed
+    if (matRef.current) matRef.current.opacity = strip.bright * (0.82 + Math.sin(t * 0.7 + phase) * 0.18) * edgeF * fogF * ease
   })
 
   return (
@@ -355,9 +420,11 @@ function PaperTrail({ dark }) {
 }
 
 /** 纸张星：一张纸（日期+正文横竖排+照片画在纸里）绕角色旋转；开场聚拢 + 聚焦淡出 */
+/** 纸张星：一张纸（日期+正文横竖排+照片画在纸里）绕角色旋转；开场聚拢 + 聚焦淡出 */
 function PaperStar({ paper, colors, dark, vertical, onTap, focusOn, focusPageId, introDelay = 0 }) {
   const groupRef = useRef(null)
   const matRef = useRef(null)
+  const focusK = useRef(0)
   const { camera } = useThree()
   const v3 = useMemo(() => new THREE.Vector3(), [])
   const base = useMemo(() => new THREE.Vector3(...paper.pos), [paper.pos])
@@ -399,8 +466,12 @@ function PaperStar({ paper, colors, dark, vertical, onTap, focusOn, focusPageId,
     // #1 开场聚拢：按序均匀逐个浮现
     const it = THREE.MathUtils.clamp((t - introDelay) / 1.4, 0, 1)
     const ease = it * it * (3 - 2 * it)
+    // #2 点击聚焦：被点中的那张纸向我们飘近并稍微放大，其余纸张照常旋转
+    const isFocused = focusOn && focusPageId === paper.id
+    focusK.current += ((isFocused ? 1 : 0) - focusK.current) * Math.min(1, dt * 3)
+    const pull = 0.24 * focusK.current
     if (groupRef.current) {
-      const f = (1 + Math.sin(t * 0.3 + phase) * 0.006) * (2.2 - 1.2 * ease)
+      const f = (1 + Math.sin(t * 0.3 + phase) * 0.006) * (2.2 - 1.2 * ease) * (1 - pull)
       groupRef.current.position.set(base.x * f, base.y * f, base.z * f)
       // 方案A+B：屏幕边缘渐隐 + 轻微退缩；深度薄雾
       groupRef.current.getWorldPosition(v3)
@@ -409,11 +480,9 @@ function PaperStar({ paper, colors, dark, vertical, onTap, focusOn, focusPageId,
       const edge = Math.max(Math.abs(v3.x), Math.abs(v3.y))
       edgeF = 1 - THREE.MathUtils.smoothstep(edge, 0.8, 0.99)
       fogF = THREE.MathUtils.clamp(1.3 - dist / 60, 0.6, 1)
-      groupRef.current.scale.setScalar((0.8 + 0.2 * edgeF) * (0.6 + 0.4 * ease))
+      groupRef.current.scale.setScalar((0.8 + 0.2 * edgeF) * (0.6 + 0.4 * ease) * (1 + 0.3 * focusK.current))
     }
-    // #2 聚焦阅读：未被选中的纸淡入黑暗
-    const dimmed = focusOn && focusPageId !== paper.id ? 0.14 : 1
-    if (matRef.current) matRef.current.opacity = (0.92 + Math.sin(t * 0.6 + phase) * 0.08) * edgeF * fogF * ease * dimmed
+    if (matRef.current) matRef.current.opacity = (0.92 + Math.sin(t * 0.6 + phase) * 0.08) * edgeF * fogF * ease
   })
 
   return (
@@ -434,58 +503,52 @@ function PaperStar({ paper, colors, dark, vertical, onTap, focusOn, focusPageId,
   )
 }
 
-/** 点击粒子：淡淡的粒子从记忆位置向外散开（替代生硬的光圈） */
-function Burst({ pos }) {
+/** 点击纸张：细小的金色颗粒从纸张矩形边框抖落，向观察者飘来、微带下坠 */
+function ShakeDust({ pos, w = 6, h = 6, dark }) {
   const refs = useRef([])
   const mats = useRef([])
   const dotMap = useMemo(() => makeDotTexture(), [])
   useEffect(() => () => dotMap.dispose(), [dotMap])
-  const dirs = useMemo(() => Array.from({ length: 10 }, () => {
-    const a = Math.random() * Math.PI * 2
-    const b = (Math.random() - 0.5) * 1.1
-    return [Math.cos(a) * Math.cos(b), Math.sin(b) * 0.8, Math.sin(a) * Math.cos(b)]
-  }), [])
   const start = useRef(performance.now())
+  const hw = (w / 2) * 1.03
+  const hh = (h / 2) * 1.03
+  // 金尘颗粒：沿纸张边框取样（细小、颗粒感足），主方向 = 指向观察者（球心）+ 随机散布
+  const parts = useMemo(() => {
+    const towardViewer = new THREE.Vector3(...pos).normalize().negate()
+    const per = 2 * (w + h)
+    return Array.from({ length: 22 }, (_, i) => {
+      let d0 = ((i / 22) * per + Math.random() * (per / 22)) % per
+      let x, y
+      if (d0 < w) { x = -hw + d0; y = -hh }
+      else if (d0 < w + h) { x = hw; y = -hh + (d0 - w) }
+      else if (d0 < 2 * w + h) { x = hw - (d0 - w - h); y = hh }
+      else { x = -hw; y = hh - (d0 - 2 * w - h) }
+      const toward = towardViewer.clone().multiplyScalar(0.8 + Math.random() * 0.5)
+      const spread = new THREE.Vector3(Math.random() - 0.5, (Math.random() - 0.5) * 0.7, Math.random() - 0.5).multiplyScalar(0.35)
+      const d = toward.add(spread).normalize()
+      return { d, sp: 5 + Math.random() * 4, x, y }
+    })
+  }, [pos, w, h])
   useFrame(() => {
-    const k = Math.min(1, (performance.now() - start.current) / 900)
-    dirs.forEach((d, i) => {
+    const k = Math.min(1, (performance.now() - start.current) / 1200)
+    parts.forEach((p, i) => {
       const el = refs.current[i]
-      if (el) el.position.set(d[0] * k * 7, d[1] * k * 7, d[2] * k * 7)
+      if (el) el.position.set(p.x + p.d.x * k * p.sp, p.y + p.d.y * k * p.sp - k * k * 0.5, p.d.z * k * 2)
       const m = mats.current[i]
-      if (m) m.opacity = (1 - k) * 0.6
+      if (m) m.opacity = (1 - k) * (dark ? 0.75 : 0.55)
     })
   })
   return (
     <group position={pos}>
-      {dirs.map((_, i) => (
+      {parts.map((_, i) => (
         <Billboard key={i}>
           <mesh ref={(el) => { refs.current[i] = el }}>
-            <planeGeometry args={[0.7, 0.7]} />
-            <meshBasicMaterial ref={(m) => { mats.current[i] = m }} map={dotMap} color="#ffd98a" transparent opacity={0.6} depthWrite={false} blending={THREE.AdditiveBlending} toneMapped={false} />
+            <planeGeometry args={[0.34, 0.34]} />
+            <meshBasicMaterial ref={(m) => { mats.current[i] = m }} map={dotMap} color={dark ? '#ffe3a6' : '#8a6d3b'} transparent opacity={0.75} depthWrite={false} blending={THREE.AdditiveBlending} toneMapped={false} />
           </mesh>
         </Billboard>
       ))}
     </group>
-  )
-}
-
-/** 记忆涟漪：点击记忆时淡淡的的一圈光环（配合粒子，克制不抢戏） */
-function Ripple({ pos }) {
-  const ringRef = useRef(null)
-  const matRef = useRef(null)
-  const start = useRef(performance.now())
-  useFrame(() => {
-    const t = (performance.now() - start.current) / 1000
-    if (ringRef.current) ringRef.current.scale.setScalar(1 + t * 16)
-    if (matRef.current) matRef.current.opacity = Math.max(0, 0.3 * (1 - t / 1.1))
-  })
-  return (
-    <Billboard position={pos}>
-      <mesh ref={ringRef}>
-        <ringGeometry args={[0.96, 1, 48]} />
-        <meshBasicMaterial ref={matRef} color="#ffd98a" transparent opacity={0.3} depthWrite={false} blending={THREE.AdditiveBlending} toneMapped={false} side={THREE.DoubleSide} />
-      </mesh>
-    </Billboard>
   )
 }
 
@@ -524,38 +587,23 @@ function Meteor({ dark }) {
   )
 }
 
-/** 天空组：纸张环 或 文字星河；支持聚焦阅读（镜头推向选中记忆、其余淡出） */
-function SkyDome({ children, faceAngles, skyRef, dragRef, targetScaleRef, pulseRef, ripples, focus }) {
+/** 天空组：聚焦时只有被点中的那张飘近放大，其余照常旋转 */
+function SkyDome({ children, faceAngles, skyRef, dragRef, targetScaleRef, pulseRef, ripples, dark }) {
   const innerRef = useRef(null)
   useFrame((_, dt) => {
     const g = innerRef.current
     if (!g) return
-    const focused = !!focus
-    // 100 秒转一圈；拖动或聚焦阅读时暂停自转
-    if (!dragRef.current.on && !focused) g.rotation.y += dt * (Math.PI * 2 / 100)
-    // 聚焦阅读：平滑转向焦点（角度走最短路径）
-    if (focused) {
-      let diff = (focus.ay - g.rotation.y) % (Math.PI * 2)
-      if (diff > Math.PI) diff -= Math.PI * 2
-      if (diff < -Math.PI) diff += Math.PI * 2
-      g.rotation.y += diff * Math.min(1, dt * 3)
-      g.rotation.x += (focus.ax - g.rotation.x) * Math.min(1, dt * 3)
-    }
+    // 100 秒转一圈；拖动时暂停
+    if (!dragRef.current.on) g.rotation.y += dt * (Math.PI * 2 / 100)
     pulseRef.current = Math.max(0, pulseRef.current - dt * 1.8)
-    const zoomT = targetScaleRef.current * (focused ? 2.1 : 1)
-    const s = (g.scale.x + (zoomT - g.scale.x) * Math.min(1, dt * 3)) * (1 + 0.05 * pulseRef.current)
+    const s = (g.scale.x + (targetScaleRef.current - g.scale.x) * Math.min(1, dt * 3)) * (1 + 0.05 * pulseRef.current)
     g.scale.setScalar(s)
   })
   return (
     <group ref={skyRef}>
       <group ref={innerRef} rotation={[faceAngles.x, faceAngles.y, 0]}>
         {children}
-        {ripples.map(r => (
-          <React.Fragment key={r.key}>
-            <Ripple pos={r.pos} />
-            <Burst pos={r.pos} />
-          </React.Fragment>
-        ))}
+        {ripples.map(r => <ShakeDust key={r.key} pos={r.pos} w={r.w} h={r.h} dark={dark} />)}
       </group>
     </group>
   )
@@ -568,6 +616,8 @@ export default function MemoryUniverse3D({ pages = [], startIndex = null, onBack
   const [orient, setOrient] = useState('mix')          // 文字方向：'v' | 'h' | 'mix'
   const theme = useAppTheme()
   const dark = theme === 'dark'
+  // 背景/皮肤（纯新增）：AI 或图片换背景后即时生效；默认 null = 保留原主题星空
+  const bgStyle = useSurfaceBackground('memory')
   const skyRef = useRef(null)
   const targetScaleRef = useRef(1)
   const dragRef = useRef({ on: false, x: 0, y: 0, moved: false })
@@ -583,6 +633,27 @@ export default function MemoryUniverse3D({ pages = [], startIndex = null, onBack
     return () => window.removeEventListener('app:pure-mode', handler)
   }, [])
 
+  // ===== 画质档位（对齐知识宇宙）：⚙️自动（按设备+运行时监测）/ ✨高清 / 🍃流畅 =====
+  const [qualityPref, setQualityPref] = useState(readQualityPref)
+  const [liteMode, setLiteMode] = useState(detectLowEndDevice)
+  const [notice, setNotice] = useState(null)
+  const noticeTimer = useRef(null)
+  const pushNotice = useCallback((text) => {
+    setNotice(text)
+    clearTimeout(noticeTimer.current)
+    noticeTimer.current = setTimeout(() => setNotice(null), 2800)
+  }, [])
+  useEffect(() => () => clearTimeout(noticeTimer.current), [])
+  useEffect(() => {
+    if (qualityPref === 'hq') setLiteMode(false)
+    else if (qualityPref === 'lite') setLiteMode(true)
+    else setLiteMode(detectLowEndDevice())
+  }, [qualityPref])
+  const changeQualityPref = useCallback((next) => {
+    setQualityPref(next)
+    writeQualityPref(next)
+  }, [])
+
   // 主题色板
   const colors = useMemo(() => (dark ? {
     textPalette: GOLD,
@@ -592,21 +663,55 @@ export default function MemoryUniverse3D({ pages = [], startIndex = null, onBack
   } : {
     textPalette: INK,
     dateColor: '#8a6d3b',
-    paperBg: '#fffdf6', paperBorder: '#d8cdb4', paperLine: 'rgba(120,100,70,0.18)',
+    paperBg: '#fffdf6', paperBorder: '#b3a37e', paperLine: 'rgba(120,100,70,0.22)',
     paperText: '#3a3a3a', paperDate: '#8a6d3b',
   }), [dark])
+
+  // ===== 多记忆库：默认库 = 横线本实时镜像；其他库 = 批量导入的内容 =====
+  const [libs, setLibs] = useState(loadLibs)
+  const [libId, setLibId] = useState(DEFAULT_LIB_ID)
+  const [drawerOpen, setDrawerOpen] = useState(false)
+  const activeLib = libs.find(l => l.id === libId) || null
+  const activeLibName = libId === DEFAULT_LIB_ID ? '横线本' : (activeLib ? activeLib.name : '横线本')
+  const activePages = useMemo(() => {
+    if (libId === DEFAULT_LIB_ID) return pages
+    return libToPages(activeLib)
+  }, [libId, activeLib, pages])
+
+  const commitImport = useCallback(({ targetId, newName, entries }) => {
+    const libsNow = loadLibs()
+    let id2 = targetId
+    if (!id2) {
+      id2 = 'lib_' + Date.now().toString(36)
+      libsNow.push({ id: id2, name: newName, icon: '✨', source: 'import', createdAt: Date.now(), entries })
+    } else {
+      const i = libsNow.findIndex(l => l.id === id2)
+      if (i >= 0) libsNow[i] = { ...libsNow[i], entries: [...(libsNow[i].entries || []), ...entries] }
+    }
+    saveLibs(libsNow)
+    setLibs(libsNow)
+    setLibId(id2)
+    setDrawerOpen(false)
+  }, [])
+
+  const deleteLibById = useCallback((id) => {
+    const libsNow = loadLibs().filter(l => l.id !== id)
+    saveLibs(libsNow)
+    setLibs(libsNow)
+    if (libId === id) setLibId(DEFAULT_LIB_ID)
+  }, [libId])
 
   // ===== 时间环：有内容的内容页按时间顺序均匀绕一圈（旋转 = 时间往前流动）=====
   const contentPages = useMemo(() => {
     const list = []
-    pages.forEach((p, pi) => {
+    activePages.forEach((p, pi) => {
       const hasText = !!(p && p.text && p.text.trim())
       const hasPhoto = Array.isArray(p && p.photos) && p.photos.length > 0
       if (!hasText && !hasPhoto) return
       list.push({ p, pi, id: p.id || `pg${pi}` })
     })
     return list
-  }, [pages])
+  }, [activePages])
 
   // 某一页在时间环上的方位角：等分圆周（均匀，不扎堆）；高度由各分身连续随机散布
   const ringOf = useCallback((rank) => {
@@ -656,8 +761,9 @@ const levelY = (rand, i) => Math.max(-0.3, Math.min(0.58, HEIGHT_LEVELS[i % HEIG
       }
       segs.forEach((seg, si) => {
         // 纸张模式：3 圈彩色文字浮在纸面前排（12~18），季节色相可见（普通混合，纸上可读）
-        // 文字模式：8 圈加密回声铺满纸面（26~44），近中远分层不叠放（加性混合，黑底发光）
-        const echoes = showPapers ? 3 : 8
+        // 文字模式：8 圈加密回声铺满纸面（44~65），近中远分层不叠放（加性混合，黑底发光）
+        // 流畅档：回声减量，总条数上限 140
+        const echoes = ((showPapers ? 3 : 8) * (liteMode ? 0.6 : 1)) | 0
         const slot = (Math.PI * 2) / Math.max(1, contentPages.length * echoes)  // 每个分身占整个圆环的一份
         for (let e = 0; e < echoes; e++) {
           const r = showPapers
@@ -683,8 +789,8 @@ const levelY = (rand, i) => Math.max(-0.3, Math.min(0.58, HEIGHT_LEVELS[i % HEIG
         }
       })
     })
-    return out.slice(0, 260)
-  }, [contentPages, ringOf, showPapers, colors, dark])
+    return out.slice(0, liteMode ? 140 : 260)
+  }, [contentPages, ringOf, showPapers, colors, dark, liteMode])
 
   const visibleStrips = useMemo(() => {
     if (orient === 'mix') return strips
@@ -698,9 +804,9 @@ const levelY = (rand, i) => Math.max(-0.3, Math.min(0.58, HEIGHT_LEVELS[i % HEIG
     const out = []
     contentPages.forEach(({ p, id }, rank) => {
       const { a } = ringOf(rank)
-      // 每页 8 个环绕分身（总量约 50 张，看季节色相与密度），沿圆环交错铺开不叠放
+      // 每页 8 个环绕分身（流畅档 4 个），沿圆环交错铺开不叠放
       const total = Math.max(1, contentPages.length)
-      const echoes = 8
+      const echoes = liteMode ? 4 : 8
       const slot = (Math.PI * 2) / (total * echoes)
       for (let e = 0; e < echoes; e++) {
         const r = 18 + (e % 3) * 8 + rand() * 6   // 18~38 三层半径，近中远错开防叠放
@@ -717,12 +823,12 @@ const levelY = (rand, i) => Math.max(-0.3, Math.min(0.58, HEIGHT_LEVELS[i % HEIG
         })
       }
     })
-    return out.slice(0, 60)
-  }, [contentPages, ringOf, showPapers])
+    return out.slice(0, liteMode ? 30 : 60)
+  }, [contentPages, ringOf, showPapers, liteMode])
 
   const memories = useMemo(() => {
     const list = []
-    pages.forEach((p) => {
+    activePages.forEach((p) => {
       const hasText = !!(p && p.text && p.text.trim())
       const hasPhoto = Array.isArray(p && p.photos) && p.photos.length > 0
       if (!hasText && !hasPhoto) return
@@ -734,21 +840,11 @@ const levelY = (rand, i) => Math.max(-0.3, Math.min(0.58, HEIGHT_LEVELS[i % HEIG
       })
     })
     return list
-  }, [pages])
+  }, [activePages])
 
   const selected = memories.find(m => m.id === selectedId) || null
-
-  // 聚焦阅读（#2）：选中记忆 → 镜头平滑推向它的方位；关闭详情后缓缓退回
-  const focusData = useMemo(() => {
-    if (selectedId == null) return null
-    const src = papers.find(pp => pp.id === selectedId) || visibleStrips.find(s => s.pageId === selectedId)
-    if (!src) return null
-    const [x, y, z] = src.pos
-    return {
-      ay: Math.atan2(x, -z),
-      ax: THREE.MathUtils.clamp(-Math.atan2(y, Math.max(0.2, Math.hypot(x, z))) * 1.5, -0.6, 0.3),
-    }
-  }, [selectedId, papers, visibleStrips])
+  // #2 点击聚焦：selectedId 驱动被点中的记忆飘近放大（不再转动整个空间）
+  const focusOn = selectedId != null
 
   // #6 真实时间天幕：背景色相随手机当前时间流转（清晨偏青 / 白昼偏蓝 / 黄昏偏暖 / 深夜深金）
   const skyClass = useMemo(() => {
@@ -759,10 +855,10 @@ const levelY = (rand, i) => Math.max(-0.3, Math.min(0.58, HEIGHT_LEVELS[i % HEIG
       if (h >= 17 && h < 20) return 'from-[#160b05] via-[#26140a] to-[#3a2410]'
       return 'from-[#060302] via-[#0d0804] to-[#150c05]'
     }
-    if (h >= 5 && h < 11) return 'from-[#f3f7fa] via-[#edf3f6] to-[#e1eaef]'
-    if (h >= 11 && h < 17) return 'from-white via-[#faf7f0] to-[#efe9dc]'
-    if (h >= 17 && h < 20) return 'from-[#faf3ea] via-[#f6ead9] to-[#eeddc4]'
-    return 'from-[#f1f1ef] via-[#ebe9e3] to-[#dfdcd3]'
+    if (h >= 5 && h < 11) return 'from-[#e6edf3] via-[#dbe5ec] to-[#c9d5e0]'
+    if (h >= 11 && h < 17) return 'from-[#e8eef4] via-[#dce4ed] to-[#c8d3df]'
+    if (h >= 17 && h < 20) return 'from-[#f0e4d8] via-[#e6d5c2] to-[#d6c2a8]'
+    return 'from-[#dcdfe4] via-[#d0d4da] to-[#c0c5cd]'
   }, [dark])
   // 开场朝向：从选中的那页（时间环刻度）开始往前转；未选中则从第一页开始
   const faceAngles = useMemo(() => {
@@ -817,16 +913,20 @@ const levelY = (rand, i) => Math.max(-0.3, Math.min(0.58, HEIGHT_LEVELS[i % HEIG
 
   const handleTap = useCallback((pageId) => {
     if (dragRef.current.moved) return
+    // 再点一下已选中的纸张 → 收回（飘回原位）
+    if (pageId === selectedId) { setSelectedId(null); return }
     setSelectedId(pageId)
-    // 记忆涟漪：从被点击的记忆位置荡开一圈金环 + 镜头轻推脉冲
-    const posSrc = papers.find(pp => pp.id === pageId) || visibleStrips.find(s => s.pageId === pageId)
-    if (posSrc) {
+    // 金尘：从被点中纸张的矩形边框抖落，向观察者飘来
+    const src = papers.find(pp => pp.id === pageId) || visibleStrips.find(s => s.pageId === pageId)
+    if (src) {
       const key = Date.now()
-      setRipples(r => [...r.slice(-2), { key, pos: posSrc.pos }])
-      setTimeout(() => setRipples(r => r.filter(x => x.key !== key)), 1300)
+      const w = src.worldH ? src.worldH * (showPapers ? (PAPER_W / PAPER_H) : 0.7) : 6
+      const h = src.worldH || 6
+      setRipples(r => [...r.slice(-2), { key, pos: src.pos, w, h }])
+      setTimeout(() => setRipples(r => r.filter(x => x.key !== key)), 1400)
     }
     pulseRef.current = 1
-  }, [papers, visibleStrips])
+  }, [papers, visibleStrips, selectedId, showPapers])
 
   useEffect(() => {
     const onKey = (e) => { if (e.key === 'Escape') { selectedId ? setSelectedId(null) : onBack && onBack() } }
@@ -861,6 +961,7 @@ const levelY = (rand, i) => Math.max(-0.3, Math.min(0.58, HEIGHT_LEVELS[i % HEIG
   return (
     <div
       className={`fixed inset-0 z-[56] overflow-hidden select-none bg-gradient-to-b ${skyClass}`}
+      style={bgStyle || undefined}
       onPointerDown={onPointerDown}
       onPointerMove={onPointerMove}
       onPointerUp={endDrag}
@@ -870,21 +971,22 @@ const levelY = (rand, i) => Math.max(-0.3, Math.min(0.58, HEIGHT_LEVELS[i % HEIG
       onTouchEnd={onTouchEnd}
     >
       <Canvas
-        dpr={[1, 2]}
+        dpr={liteMode ? 1 : [1, 2]}
         camera={{ position: [0, 0, 0.01], fov: 60, near: 0.1, far: 400 }}
-        gl={{ antialias: true, alpha: true, powerPreference: 'high-performance' }}
+        gl={{ antialias: !liteMode, alpha: true, powerPreference: 'high-performance' }}
       >
         <ambientLight intensity={0.5} />
+        <PerfGuard onLite={() => { setLiteMode(true); pushNotice('已自动切换流畅模式以保持顺滑') }} />
         <Meteor dark={dark} />
-        <SkyDome faceAngles={faceAngles} skyRef={skyRef} dragRef={dragRef} targetScaleRef={targetScaleRef} pulseRef={pulseRef} ripples={ripples} focus={focusData}>
-          <Dust dark={dark} />
+        <SkyDome faceAngles={faceAngles} skyRef={skyRef} dragRef={dragRef} targetScaleRef={targetScaleRef} pulseRef={pulseRef} ripples={ripples} dark={dark}>
+          <Dust dark={dark} lite={liteMode} />
           {showPapers
             ? (<>
-                {papers.map((p, i) => <PaperStar key={p.keyId} paper={p} colors={colors} dark={dark} vertical={orient === 'v'} onTap={handleTap} focusOn={!!focusData} focusPageId={selectedId} introDelay={0.15 + (i / Math.max(1, papers.length)) * 1.6} />)}
+                {papers.map((p, i) => <PaperStar key={p.keyId} paper={p} colors={colors} dark={dark} vertical={orient === 'v'} onTap={handleTap} focusOn={focusOn} focusPageId={selectedId} introDelay={0.15 + (i / Math.max(1, papers.length)) * 1.6} />)}
                 {/* 纸张模式下：彩色文字浮在纸面前排（季节色相可见） */}
-                {visibleStrips.map((st, i) => <TextStar key={st.id} strip={st} onTap={handleTap} focusOn={!!focusData} focusPageId={selectedId} introDelay={0.15 + (i / Math.max(1, visibleStrips.length)) * 1.6} />)}
+                {visibleStrips.map((st, i) => <TextStar key={st.id} strip={st} onTap={handleTap} focusOn={focusOn} focusPageId={selectedId} introDelay={0.15 + (i / Math.max(1, visibleStrips.length)) * 1.6} />)}
               </>)
-            : visibleStrips.map((st, i) => <TextStar key={st.id} strip={st} onTap={handleTap} focusOn={!!focusData} focusPageId={selectedId} introDelay={0.15 + (i / Math.max(1, visibleStrips.length)) * 1.6} />)}
+            : visibleStrips.map((st, i) => <TextStar key={st.id} strip={st} onTap={handleTap} focusOn={focusOn} focusPageId={selectedId} introDelay={0.15 + (i / Math.max(1, visibleStrips.length)) * 1.6} />)}
         </SkyDome>
       </Canvas>
 
@@ -894,9 +996,15 @@ const levelY = (rand, i) => Math.max(-0.3, Math.min(0.58, HEIGHT_LEVELS[i % HEIG
           <div className={`text-sm font-bold ${uiText}`}>🌌 记忆宇宙</div>
           <div className={`text-[10px] mt-0.5 ${uiSub}`}>
             {memories.length} 段记忆环绕着你 · 拖动环视 · 滚轮/双指缩放 · 点击回看
+            {liteMode ? ' · 🍃流畅' : ' · ✨高清'}
           </div>
         </div>
         <div className={`flex flex-col gap-1.5 items-end pointer-events-auto ${pureMode ? 'hidden' : ''}`}>
+          <button
+            onClick={() => setDrawerOpen(true)}
+            className={`px-3 py-1.5 rounded-lg text-[11px] font-medium backdrop-blur border transition-colors ${uiBtnOn}`}
+            title={`当前记忆库：${activeLibName}（点击切换/批量导入）`}
+          >📚 {activeLibName}</button>
           <button
             onClick={() => setShowPapers(v => !v)}
             className={`px-3 py-1.5 rounded-lg text-[11px] font-medium backdrop-blur border transition-colors ${showPapers ? uiBtnOn : uiBtn}`}
@@ -908,11 +1016,37 @@ const levelY = (rand, i) => Math.max(-0.3, Math.min(0.58, HEIGHT_LEVELS[i % HEIG
             title="文字排布：混合 → 竖排 → 横排 循环切换"
           >⽂ {orientLabel}</button>
           <button
+            onClick={() => changeQualityPref(cycleQualityPref(qualityPref))}
+            title="画质档位：自动（按设备+卡顿监测）/ 高清 / 流畅 循环切换"
+            className={`px-3 py-1.5 rounded-lg text-[11px] font-medium backdrop-blur border transition-colors ${qualityPref === 'hq' ? uiBtnOn : uiBtn}`}
+          >{qualityPref === 'auto' ? '⚙️ 自动' : qualityPref === 'hq' ? '✨ 高清' : '🍃 流畅'}</button>
+          <button
             onClick={onBack}
             className={`px-3 py-1.5 rounded-lg text-[11px] font-medium backdrop-blur border transition-colors ${uiBtn}`}
           >↩ 返回总览</button>
         </div>
       </div>
+
+      {/* 运行时提示（如「已自动切换流畅模式」），自动消失 */}
+      {notice && (
+        <div className="absolute top-16 left-1/2 -translate-x-1/2 px-3 py-1.5 rounded-full bg-black/70 border border-amber-200/20 text-[11px] text-amber-100 backdrop-blur pointer-events-none whitespace-nowrap">
+          {notice}
+        </div>
+      )}
+
+      {/* 记忆库抽屉：切库 / 批量导入（z 高于记忆宇宙本身） */}
+      {drawerOpen && (
+        <LibraryDrawer
+          libs={libs}
+          currentId={libId}
+          defaultName="横线本记忆"
+          demo={DEMO}
+          onSelect={(id) => setLibId(id)}
+          onDelete={deleteLibById}
+          onCommit={commitImport}
+          onClose={() => setDrawerOpen(false)}
+        />
+      )}
 
       {/* 详情卡：贴左下，右侧留空，不遮挡右下角三个快捷键 */}
       {selected && (

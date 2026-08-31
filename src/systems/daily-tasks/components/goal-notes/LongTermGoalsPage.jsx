@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react'
 import { loadNotes, persistNotes } from '../../services/notesStorage.js'
 import { useAppTheme } from '../../../../services/theme.js'
+import { useSurfaceBackground } from '../../../../services/backgrounds.js'
 import GoalsPaperGallery from './GoalsPaperGallery.jsx'
 
 /**
@@ -54,6 +55,8 @@ export default function LongTermGoalsPage() {
   const [photoView, setPhotoView] = useState(null)   // 新增：照片大图预览
   const fileInputRef = useRef(null)                  // 新增：隐藏的选图 input
   const [, setWeatherTick] = useState(0)          // 天气点击后强制刷新
+  // 背景/皮肤（纯新增）：AI 或图片换背景后垫在横线下面即时生效；null = 保持白纸
+  const paperBg = useSurfaceBackground('notebook')
 
   // 屏幕高度 → 每页行数（扣除顶部留白 + 页眉行）
   useEffect(() => {
@@ -336,7 +339,10 @@ export default function LongTermGoalsPage() {
         ref={wrapRef}
         className="flex-1 overflow-hidden relative"
         style={{
-          backgroundImage: `repeating-linear-gradient(to bottom, transparent, transparent ${LINE_H - 1}px, ${lineColor} ${LINE_H - 1}px, ${lineColor} ${LINE_H}px)`,
+          // 自定义背景时垫在横线下面（多背景层：背景在前、横线在后），默认保持纯白稿纸
+          backgroundImage: paperBg
+            ? `${paperBg}, repeating-linear-gradient(to bottom, transparent, transparent ${LINE_H - 1}px, ${lineColor} ${LINE_H - 1}px, ${lineColor} ${LINE_H}px)`
+            : `repeating-linear-gradient(to bottom, transparent, transparent ${LINE_H - 1}px, ${lineColor} ${LINE_H - 1}px, ${lineColor} ${LINE_H}px)`,
           backgroundPosition: `0 ${PAD_TOP}px`,
         }}
       >
