@@ -72,10 +72,11 @@ export function getParams(surface) {
   return out
 }
 
-/** 合并写入参数（仅白名单内的键生效，越界自动夹取） */
+/** 合并写入参数（变更前自动记录撤回快照；仅白名单内的键生效，越界自动夹取） */
 export function setParams(surface, params) {
   if (!SURFACES.includes(surface)) return false
   const defs = PARAM_DEFS[surface] || {}
+  pushHistory(surface)
   const all = loadAll()
   const cur = all[surface] || { bg: null, params: {} }
   const nextParams = { ...(cur.params || {}) }
@@ -90,15 +91,61 @@ export function setParams(surface, params) {
   return true
 }
 
+// ===== 撤回历史（每页面独立 LIFO 栈；独立存储键，刻意不纳入云备份/全量导出） =====
+const HISTORY_KEY = 'growth_app_v1_backgrounds_history'
+const HISTORY_CAP = 20   // 每页面最多记 20 步
+
+function loadHistory() {
+  try {
+    const v = storage.get(HISTORY_KEY, {})
+    return (v && typeof v === 'object') ? v : {}
+  } catch (e) { return {} }
+}
+function saveHistory(h) {
+  try { storage.set(HISTORY_KEY, h) } catch (e) { /* ignore */ }
+}
+/** 变更前快照当前外观（深拷贝入栈） */
+function pushHistory(surface) {
+  if (!SURFACES.includes(surface)) return
+  const cur = loadAll()[surface] || { bg: null, params: {} }
+  const h = loadHistory()
+  const stack = h[surface] || []
+  stack.push(JSON.parse(JSON.stringify(cur)))
+  while (stack.length > HISTORY_CAP) stack.shift()
+  h[surface] = stack
+  saveHistory(h)
+}
+
+/** 是否有可撤回的上一步 */
+export function canUndoSurface(surface) {
+  return SURFACES.includes(surface) && (loadHistory()[surface] || []).length > 0
+}
+
+/** 撤回到上一步外观（成功返回 true；栈空返回 false）；即时广播换肤 */
+export function undoSurface(surface) {
+  if (!SURFACES.includes(surface)) return false
+  const h = loadHistory()
+  const stack = h[surface] || []
+  if (stack.length === 0) return false
+  const prev = stack.pop()
+  saveHistory(h)
+  const all = loadAll()
+  all[surface] = prev || { bg: null, params: {} }
+  saveAll(all)
+  try { window.dispatchEvent(new CustomEvent(BG_EVENT, { detail: { surface } })) } catch (e) { /* ignore */ }
+  return true
+}
+
 /** 读取某页面背景（未设置/非法值返回 null = 使用各页面默认外观） */
 export function getBackground(surface) {
   if (!SURFACES.includes(surface)) return null
   return getSurfaceSettings(surface).bg
 }
 
-/** 设置某页面背景（图片请先经 compressImageForBackground 压缩） */
+/** 设置某页面背景（变更前自动记录撤回快照；图片请先经 compressImageForBackground 压缩） */
 export function setBackground(surface, bg) {
   if (!SURFACES.includes(surface) || !bg || !bg.type) return false
+  pushHistory(surface)
   const all = loadAll()
   const cur = all[surface] || { bg: null, params: {} }
   all[surface] = { bg, params: cur.params || {} }
@@ -107,12 +154,16 @@ export function setBackground(surface, bg) {
   return true
 }
 
-/** 恢复某页面默认外观（背景 + 参数一并还原）；surface='all' 时全部还原 */
+/** 恢复某页面最初默认外观（背景+参数+撤回历史一并清空，即「一键撤回到最初」）；surface='all' 时全部还原 */
 export function resetBackground(surface) {
   const all = loadAll()
+  const h = loadHistory()
   const targets = surface === 'all' ? SURFACES : [surface]
-  targets.forEach(s => { if (SURFACES.includes(s)) delete all[s] })
+  targets.forEach(s => {
+    if (SURFACES.includes(s)) { delete all[s]; h[s] = [] }
+  })
   saveAll(all)
+  saveHistory(h)
   try { window.dispatchEvent(new CustomEvent(BG_EVENT, { detail: { surface } })) } catch (e) { /* ignore */ }
   return true
 }

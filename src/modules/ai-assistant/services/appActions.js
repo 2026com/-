@@ -1,4 +1,4 @@
-import { SURFACES, SURFACE_NAMES, PARAM_DEFS, setBackground, setParams, resetBackground } from '../../../services/backgrounds.js'
+import { SURFACES, SURFACE_NAMES, PARAM_DEFS, setBackground, setParams, resetBackground, canUndoSurface, undoSurface } from '../../../services/backgrounds.js'
 
 /**
  * AI 应用操作层（白名单指令协议）
@@ -15,7 +15,8 @@ export const APP_ACTION_PROTOCOL = `
    knowledge 可调参数：starDensity 星空密度(0.3~3，默认1)、starBrightness 星光亮度(0.3~3，默认1)、linkBrightness 连线亮度(0.2~3，默认1)、glowIntensity 辉光强度(0~3，默认1)、fogDensity 星云雾感(0.2~2，默认1)；
    memory 可调参数：rotateSpeed 旋转速度(0.2~5，默认1，1=每100秒转一圈)、dustBrightness 星尘亮度(0.2~3，默认1)、textBrightness 文字亮度(0.3~2，默认1)；
    notebook 可调参数：lineSpacing 行距(0.8~1.6，默认1，1=标准行高37px)、fontSize 字号(0.8~1.4，默认1，1=标准字号15.5px)。
-3. 恢复默认：\`\`\`json\n{"action":"reset_background","surface":"knowledge|memory|notebook|all"}\n\`\`\`（背景和参数一并还原默认）
+3. 撤回到上一步：\`\`\`json\n{"action":"undo_appearance","surface":"knowledge|memory|notebook"}\n\`\`\`（撤销该页面最近一次外观变更，可连续撤回，每页最多记 20 步）
+4. 恢复最初默认：\`\`\`json\n{"action":"reset_background","surface":"knowledge|memory|notebook|all"}\n\`\`\`（背景和参数+撤回历史一并清空，回到出厂外观）
 surface 含义：knowledge=3D知识库，memory=记忆库，notebook=横线本；all=全部恢复默认。
 规则：用户没要求时绝不输出指令；用户说「星星多点/转快点/亮一点」等模糊需求时映射到对应参数并取合理值；每次只输出一条指令。`
 
@@ -68,6 +69,9 @@ export function parseBackgroundAction(text) {
     })
     if (Object.keys(params).length > 0) return { action: 'set_params', surface: obj.surface, params }
   }
+  if (obj.action === 'undo_appearance' && SURFACES.includes(obj.surface)) {
+    return { action: 'undo_appearance', surface: obj.surface }
+  }
   if (obj.action === 'reset_background' && (obj.surface === 'all' || SURFACES.includes(obj.surface))) {
     return { action: 'reset_background', surface: obj.surface }
   }
@@ -77,10 +81,13 @@ export function parseBackgroundAction(text) {
 /** 指令 → 人话描述（确认弹窗用） */
 export function describeBackgroundAction(act) {
   if (!act) return ''
+  if (act.action === 'undo_appearance') {
+    return `将把「${SURFACE_NAMES[act.surface]}」的外观撤回到上一步。`
+  }
   if (act.action === 'reset_background') {
     return act.surface === 'all'
-      ? '将把 3D 知识库、记忆库、横线本三处的背景与参数全部恢复默认。'
-      : `将把「${SURFACE_NAMES[act.surface]}」的背景与参数恢复默认。`
+      ? '将把 3D 知识库、记忆库、横线本三处的背景与参数全部恢复出厂默认（撤回历史同时清空）。'
+      : `将把「${SURFACE_NAMES[act.surface]}」的背景与参数恢复出厂默认（撤回历史同时清空）。`
   }
   if (act.action === 'set_params') {
     const defs = PARAM_DEFS[act.surface] || {}
@@ -92,7 +99,15 @@ export function describeBackgroundAction(act) {
   const desc = bg.type === 'color'
     ? `纯色 ${bg.value}`
     : `${bg.from} → ${bg.to} 渐变（${bg.angle}°）`
-  return `将把「${name}」的背景更换为：${desc}。\n\n随时可以对 AI 说「恢复默认背景」或从换背景面板一键还原。`
+  return `将把「${name}」的背景更换为：${desc}。\n\n随时可以对 AI 说「撤回到上一步」或「恢复默认背景」。`
+}
+
+// 各指令成功后的提示语
+const SUCCESS_MSG = {
+  set_background: '🎨 背景已更新',
+  set_params: '🎨 外观参数已更新',
+  reset_background: '↺ 已恢复出厂默认外观',
+  undo_appearance: '↺ 已撤回到上一步',
 }
 
 /** 执行指令（已过白名单）；返回是否成功 */
@@ -100,23 +115,28 @@ export function applyBackgroundAction(act) {
   try {
     if (act.action === 'set_background') return setBackground(act.surface, act.bg)
     if (act.action === 'set_params') return setParams(act.surface, act.params)
+    if (act.action === 'undo_appearance') return undoSurface(act.surface)
     if (act.action === 'reset_background') return resetBackground(act.surface)
   } catch (e) { /* ignore */ }
   return false
 }
 
-/** 确认弹窗 + 执行（全局 ModalRoot，z-50 浮于所有页面之上） */
+/** 确认弹窗 + 执行（全局 ModalRoot，z-50 浮于所有页面之上）；撤销指令无可撤回步骤时直接提示不弹窗 */
 export function confirmBackgroundAction(act, dispatch) {
+  if (act.action === 'undo_appearance' && !canUndoSurface(act.surface)) {
+    dispatch({ type: 'PUSH_MODAL', payload: { type: 'toast', message: `「${SURFACE_NAMES[act.surface]}」没有可撤回的步骤` } })
+    return
+  }
   dispatch({
     type: 'PUSH_MODAL',
     payload: {
       type: 'confirm',
-      title: '应用背景更换？',
+      title: '应用外观变更？',
       message: describeBackgroundAction(act),
       okText: '应用',
       onOk: () => {
         const ok = applyBackgroundAction(act)
-        dispatch({ type: 'PUSH_MODAL', payload: { type: 'toast', message: ok ? '🎨 背景已更新' : '⚠️ 应用失败，请重试' } })
+        dispatch({ type: 'PUSH_MODAL', payload: { type: 'toast', message: ok ? (SUCCESS_MSG[act.action] || '✅ 已应用') : '⚠️ 应用失败，请重试' } })
       }
     }
   })
