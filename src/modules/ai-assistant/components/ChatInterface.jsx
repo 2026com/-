@@ -66,6 +66,9 @@ export default function AIChatSidebar({ onOpenConfig, embedded = false }) {
   const [currentSessionId, setCurrentSessionId] = useState(null)
   const [modelProfiles, setModelProfiles] = useState({})
 
+  // 聊天消息（提前声明：下方会话 effect 依赖数组在渲染期求值，必须在 messages 声明之后才能引用）
+  const messages = state.aiHistory || []
+
   // 最新值镜像（持久化/切换会话的回调里读取，避免闭包旧值）
   const messagesRef = useRef([]); messagesRef.current = messages
   const sessionsRef = useRef([]); sessionsRef.current = sessions
@@ -406,8 +409,6 @@ export default function AIChatSidebar({ onOpenConfig, embedded = false }) {
     window.addEventListener('resize', onResize)
     return () => window.removeEventListener('resize', onResize)
   }, [clampFabTop])
-
-  const messages = state.aiHistory || []
 
   // 展开/新消息时滚到底
   useEffect(() => {
