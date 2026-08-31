@@ -3,6 +3,8 @@ import { useNavigate } from 'react-router-dom'
 import { useAppState, useAppDispatch } from '../../context/AppContext.jsx'
 import { getSEVEN_SYSTEMS_EFFECTIVE } from '../../utils/constants.js'
 import AIChatSidebar from '../../modules/ai-assistant/components/ChatInterface.jsx'
+import { AccountPanel } from '../../modules/account/index.js'
+import { getSession } from '../../modules/account/services/accountService.js'
 
 /**
  * 左侧全局可收起抽屉 双模式一键切换（V2：只保留 7 个指定系统）
@@ -206,6 +208,10 @@ function NavContent({ collapsed }) {
   const [richengOpen, setRichengOpen] = useState(true)  // 任务日程子菜单默认展开，用户一眼可见
   const [editingId, setEditingId] = useState(null)       // 正在重命名的系统 id
   const [editingValue, setEditingValue] = useState('')
+  // 账号面板开关（账号系统模块 AccountPanel）+ 登录态标签（getSession 同步读内存镜像）
+  const [showAccount, setShowAccount] = useState(false)
+  const sess = getSession()
+  const accountLabel = sess ? `账号：${sess.nickname}` : '登录 / 注册'
 
   // 实际生效的 7 系统数组（优先自定义名）
   const systems = useMemo(() => getSEVEN_SYSTEMS_EFFECTIVE(settings), [settings])
@@ -358,15 +364,25 @@ function NavContent({ collapsed }) {
         </div>
       ))}
 
-      {/* 底部：恢复默认命名（仅展开模式） */}
+      {/* 底部：账号入口 + 恢复默认命名（仅展开模式） */}
       {!collapsed && (
         <div className="px-4 pt-2 mt-2 border-t border-slate-100">
+          <button
+            onClick={() => setShowAccount(true)}
+            className="w-full flex items-center gap-2 px-1 py-2 rounded-lg text-sm font-semibold text-slate-600 hover:bg-slate-50 touch-feedback"
+          >
+            <span className="w-5 text-center shrink-0">👤</span>
+            <span className="truncate">{accountLabel}</span>
+          </button>
           <button
             onClick={restoreDefaults}
             className="w-full text-[10px] text-slate-400 hover:text-indigo-600 py-1.5 touch-feedback leading-tight"
           >💡 恢复 7 系统默认名称</button>
         </div>
       )}
+
+      {/* 账号面板（登录/注册/云备份/恢复，账号系统模块） */}
+      <AccountPanel open={showAccount} onClose={() => setShowAccount(false)} />
     </div>
   )
 }
