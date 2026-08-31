@@ -1,0 +1,36 @@
+# 独立模块 · 账号系统（account）
+
+状态：🚧 第一期（本地模拟后端版）——注册 / 登录 / 云备份 / 云恢复 全流程可演示，数据不出设备；真实云端（BaaS）接入时界面与调用方零改动。
+
+## 文件构成
+
+| 文件 | 作用 |
+| --- | --- |
+| `components/AccountPanel.jsx` | 账号面板 UI：未登录（登录/注册双 Tab）、已登录（账号信息 + 备份/恢复 + 退出） |
+| `services/accountService.js` | 统一门面：供应商切换（`ACCOUNT_PROVIDER`）、同步键清单、本地快照收集/写回 |
+| `services/mockAuth.js` | 模拟认证：注册/登录/会话；密码只存「盐 + SHA-256」，绝不存明文 |
+| `services/mockCloud.js` | 模拟云端：按 userId 隔离的数据空间（IndexedDB），备份概要、多标签页更新通知 |
+| `index.js` | 模块入口，导出 AccountPanel |
+
+## 接入方式
+
+- 入口按钮挂载点：见主工程接入处（AccountPanel 为全屏模态，`<AccountPanel open={...} onClose={...} />`）；
+- 恢复数据后通过 `window.location.reload()` 让 AppContext 从存储重新启动读取。
+
+## 云同步范围
+
+`SYNC_KEYS` = `STORAGE_KEYS` 全部业务键 + 横线本独立键（`growth_app_notes_v1`），**排除 `DATA_VERSION`**（版本号留设备本地，防止旧快照恢复进新版 App 触发启动清库重建）。
+
+## 真实云端接入清单（待办）
+
+1. 注册腾讯云开发（或 LeanCloud），拿到环境 ID / 密钥；
+2. `ACCOUNT_PROVIDER` 切为 `'tcb'`（或其他），按同一签名实现 auth 与 cloud 服务；
+3. 密码加密、会话令牌、数据隔离规则由云端账号系统接管；
+4. 同步升级：手动备份/恢复 → 自动增量同步 + 冲突处理；
+5. 隐私政策同步改版（开始收集账号信息后必须更新）。
+
+## 安全设计（与真实后端一致的原则）
+
+- 数据库只存「随机盐 + SHA-256(盐::密码)」，即使拿到数据库也还原不出原密码；
+- 登录失败统一提示「账号或密码错误」，不暴露账号是否存在（防撞库探测）；
+- 每个账号的云端数据按 userId 命名空间隔离，接口必须带会话才能读写。
