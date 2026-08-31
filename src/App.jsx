@@ -199,7 +199,8 @@ export default function App() {
       </div>
 
       {/* AI 助手为独立模块，入口挂在全局左侧抽屉（LeftDrawer → modules/ai-assistant/ChatInterface） */}
-      {!pureMode && <BottomTabs />}
+      {/* 心理情绪板块自带页内三条 Tab（情绪/社区/聊天），该路由下隐藏全局底栏避免双底栏 */}
+      {!pureMode && !location.pathname.startsWith('/mind-community') && <BottomTabs />}
       <ModalRoot />
       {/* 到点提醒的顶部横幅（应用内，微信式；App 外由系统通知横幅负责） */}
       <TopReminderBanner />
