@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react'
 import { loadNotes, persistNotes } from '../../services/notesStorage.js'
 import { useAppTheme } from '../../../../services/theme.js'
-import { useSurfaceBackground } from '../../../../services/backgrounds.js'
+import { useSurfaceBackground, useSurfaceParams } from '../../../../services/backgrounds.js'
 import GoalsPaperGallery from './GoalsPaperGallery.jsx'
 
 /**
