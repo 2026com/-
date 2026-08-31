@@ -42,9 +42,8 @@ export function validateAccount(account) {
 }
 export function validatePassword(pwd) {
   const v = String(pwd || '')
-  if (v.length < 8) return '密码至少 8 位'
-  // 强制字母+数字混合：纯数字/纯字母密码可被秒级爆破（弱密码是账号被盗的头号原因）
-  if (!/[a-zA-Z]/.test(v) || !/\d/.test(v)) return '密码需同时包含字母和数字'
+  // 6 位数字（支付密码式，符合大众认知）；线上暴力破解由登录限流兜底（5次/10分钟 ≈ 4 年试不完）
+  if (!/^\d{6}$/.test(v)) return '密码需为 6 位数字'
   return ''
 }
 

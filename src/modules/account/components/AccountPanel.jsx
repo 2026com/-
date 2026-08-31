@@ -163,7 +163,7 @@ export default function AccountPanel({ open, onClose }) {
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 onKeyDown={(e) => { if (e.key === 'Enter') handleSubmit() }}
-                placeholder="密码（至少 6 位）"
+                placeholder="密码（6 位数字）"
                 type="password"
                 className="w-full px-3 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm text-slate-700 dark:text-slate-200 outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 dark:focus:ring-indigo-900/50"
               />
