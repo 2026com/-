@@ -125,10 +125,9 @@ function cycleQualityPref(pref) {
   return pref === 'auto' ? 'hq' : pref === 'hq' ? 'lite' : 'auto'
 }
 
-/** 低端设备启发式（auto 档启动分级依据；运行时 PerfGuard 二次修正）：手机端默认流畅档 */
+/** 低端设备启发式（auto 档启动分级依据；运行时 PerfGuard 二次修正）：仅真低配机降流畅，手机不再一刀切 */
 function detectLowEndDevice() {
   if (typeof navigator === 'undefined') return false
-  if (IS_MOBILE_DEVICE) return true
   try {
     const mem = navigator.deviceMemory
     const cores = navigator.hardwareConcurrency
@@ -369,11 +368,11 @@ function Dust({ dark, lite, brightness = 1 }) {
   })
   return (
     <group>
-      <points geometry={layers[0].geo}>
-        <pointsMaterial ref={m0} size={layers[0].size} color={dark ? '#caa25e' : '#9c8b6a'} map={dotMap} transparent opacity={0.4 * brightness} sizeAttenuation depthWrite={false} />
+      <points geometry={layers[0].geo} raycast={() => null}>
+        <pointsMaterial ref={m0} size={layers[0].size} color={dark ? '#caa25e' : '#9c8b6a'} map={dotMap} transparent opacity={0.4} sizeAttenuation depthWrite={false} />
       </points>
-      <points geometry={layers[1].geo}>
-        <pointsMaterial ref={m1} size={layers[1].size} color={dark ? '#ffe3a6' : '#b3a077'} map={dotMap} transparent opacity={0.5 * brightness} sizeAttenuation depthWrite={false} />
+      <points geometry={layers[1].geo} raycast={() => null}>
+        <pointsMaterial ref={m1} size={layers[1].size} color={dark ? '#ffe3a6' : '#b3a077'} map={dotMap} transparent opacity={0.5} sizeAttenuation depthWrite={false} />
       </points>
     </group>
   )
@@ -409,8 +408,9 @@ function TextStar({ strip, onTap, focusOn, focusPageId, introDelay = 0, brightne
   useEffect(() => () => tex.texture.dispose(), [tex])
 
   useFrame(({ clock }, dt) => {
-    // 流畅档：隔帧更新（动画 30fps 足够顺滑），JS 每帧成本减半
-    if (lite) { frameNo.current++; if (frameNo.current % 2 === 0) return }
+    // 隔帧更新：流畅档隔帧；手机端即便高清档也隔帧（30fps 动画肉眼无感，JS 成本减半）
+    frameNo.current++
+    if ((lite || IS_MOBILE_DEVICE) && frameNo.current % 2 === 0) return
     const t = clock.elapsedTime
     let edgeF = 1
     let fogF = 1
@@ -425,12 +425,18 @@ function TextStar({ strip, onTap, focusOn, focusPageId, introDelay = 0, brightne
       const f = (1 + Math.sin(t * 0.3 + phase) * 0.008) * (2.6 - 1.6 * ease) * (1 - pull)
       groupRef.current.position.set(base.x * f, base.y * f, base.z * f)
       // 方案A+B：屏幕边缘渐隐 + 轻微退缩；深度薄雾：远处更朦胧
-      groupRef.current.getWorldPosition(v3)
-      const dist = v3.length()
-      v3.project(camera)
-      const edge = Math.max(Math.abs(v3.x), Math.abs(v3.y))
-      edgeF = 1 - THREE.MathUtils.smoothstep(edge, 0.78, 0.99)
-      fogF = THREE.MathUtils.clamp(1.3 - dist / 75, 0.55, 1)
+      if (lite) {
+        // 流畅档：雾用构建期常量、跳过逐帧屏幕投影（camera.project 是最贵的每帧运算）
+        edgeF = 1
+        fogF = strip.fog || 1
+      } else {
+        groupRef.current.getWorldPosition(v3)
+        const dist = v3.length()
+        v3.project(camera)
+        const edge = Math.max(Math.abs(v3.x), Math.abs(v3.y))
+        edgeF = 1 - THREE.MathUtils.smoothstep(edge, 0.78, 0.99)
+        fogF = THREE.MathUtils.clamp(1.3 - dist / 75, 0.55, 1)
+      }
       groupRef.current.scale.setScalar((0.78 + 0.22 * edgeF) * (0.55 + 0.45 * ease) * (1 + 0.3 * focusK.current))
     }
     if (matRef.current) matRef.current.opacity = strip.bright * (0.82 + Math.sin(t * 0.7 + phase) * 0.18) * edgeF * fogF * ease * brightness
@@ -439,7 +445,7 @@ function TextStar({ strip, onTap, focusOn, focusPageId, introDelay = 0, brightne
   return (
     <group ref={groupRef} position={strip.pos}>
       <Billboard>
-        <mesh>
+        <mesh raycast={() => null}>
           <planeGeometry args={[strip.worldH * tex.aspect, strip.worldH]} />
           <meshBasicMaterial
             ref={matRef}
@@ -481,7 +487,7 @@ function PaperTrail({ dark }) {
     <group>
       {phases.map((ph, i) => (
         <Billboard key={i}>
-          <mesh ref={(el) => { refs.current[i] = el }}>
+          <mesh ref={(el) => { refs.current[i] = el }} raycast={() => null}>
             <planeGeometry args={[0.9, 0.9]} />
             <meshBasicMaterial map={dotMap} color={dark ? '#ffe3a6' : '#9c8b6a'} transparent opacity={0} depthWrite={false} blending={THREE.AdditiveBlending} toneMapped={false} />
           </mesh>
@@ -533,8 +539,9 @@ function PaperStar({ paper, colors, dark, vertical, onTap, focusOn, focusPageId,
   }, [paper, colors, built, vertical])
 
   useFrame(({ clock }, dt) => {
-    // 流畅档：隔帧更新（动画 30fps 足够顺滑），JS 每帧成本减半
-    if (lite) { frameNo.current++; if (frameNo.current % 2 === 0) return }
+    // 隔帧更新：流畅档隔帧；手机端即便高清档也隔帧（30fps 动画肉眼无感，JS 成本减半）
+    frameNo.current++
+    if ((lite || IS_MOBILE_DEVICE) && frameNo.current % 2 === 0) return
     const t = clock.elapsedTime
     let edgeF = 1
     let fogF = 1
@@ -549,12 +556,18 @@ function PaperStar({ paper, colors, dark, vertical, onTap, focusOn, focusPageId,
       const f = (1 + Math.sin(t * 0.3 + phase) * 0.006) * (2.2 - 1.2 * ease) * (1 - pull)
       groupRef.current.position.set(base.x * f, base.y * f, base.z * f)
       // 方案A+B：屏幕边缘渐隐 + 轻微退缩；深度薄雾
-      groupRef.current.getWorldPosition(v3)
-      const dist = v3.length()
-      v3.project(camera)
-      const edge = Math.max(Math.abs(v3.x), Math.abs(v3.y))
-      edgeF = 1 - THREE.MathUtils.smoothstep(edge, 0.8, 0.99)
-      fogF = THREE.MathUtils.clamp(1.3 - dist / 60, 0.6, 1)
+      if (lite) {
+        // 流畅档：雾用构建期常量、跳过逐帧屏幕投影（camera.project 是最贵的每帧运算）
+        edgeF = 1
+        fogF = paper.fog || 1
+      } else {
+        groupRef.current.getWorldPosition(v3)
+        const dist = v3.length()
+        v3.project(camera)
+        const edge = Math.max(Math.abs(v3.x), Math.abs(v3.y))
+        edgeF = 1 - THREE.MathUtils.smoothstep(edge, 0.8, 0.99)
+        fogF = THREE.MathUtils.clamp(1.3 - dist / 60, 0.6, 1)
+      }
       groupRef.current.scale.setScalar((0.8 + 0.2 * edgeF) * (0.6 + 0.4 * ease) * (1 + 0.3 * focusK.current))
     }
     if (matRef.current) matRef.current.opacity = (0.92 + Math.sin(t * 0.6 + phase) * 0.08) * edgeF * fogF * ease
@@ -564,7 +577,7 @@ function PaperStar({ paper, colors, dark, vertical, onTap, focusOn, focusPageId,
     <group ref={groupRef} position={paper.pos}>
       <PaperTrail dark={dark} />
       <Billboard>
-        <mesh>
+        <mesh raycast={() => null}>
           <planeGeometry args={[paper.worldH * (PAPER_W / PAPER_H), paper.worldH]} />
           <meshBasicMaterial ref={matRef} map={built} transparent opacity={0.95} toneMapped={false} />
         </mesh>
@@ -617,7 +630,7 @@ function ShakeDust({ pos, w = 6, h = 6, dark }) {
     <group position={pos}>
       {parts.map((_, i) => (
         <Billboard key={i}>
-          <mesh ref={(el) => { refs.current[i] = el }}>
+          <mesh ref={(el) => { refs.current[i] = el }} raycast={() => null}>
             <planeGeometry args={[0.34, 0.34]} />
             <meshBasicMaterial ref={(m) => { mats.current[i] = m }} map={dotMap} color={dark ? '#ffe3a6' : '#8a6d3b'} transparent opacity={0.75} depthWrite={false} blending={THREE.AdditiveBlending} toneMapped={false} />
           </mesh>
@@ -654,7 +667,7 @@ function Meteor({ dark }) {
   })
   return (
     <Billboard ref={ref}>
-      <mesh>
+      <mesh raycast={() => null}>
         <planeGeometry args={[3.2, 0.55]} />
         <meshBasicMaterial ref={matRef} color={dark ? '#ffe9bd' : '#9c8b6a'} transparent opacity={0} depthWrite={false} blending={THREE.AdditiveBlending} toneMapped={false} />
       </mesh>
@@ -838,6 +851,7 @@ const levelY = (rand, i) => Math.max(-0.3, Math.min(0.58, HEIGHT_LEVELS[i % HEIG
           color: showPapers ? '#5a4a32' : colors.dateColor,
           blend: showPapers ? 'normal' : 'add',
           vert: false,
+          fog: THREE.MathUtils.clamp(1.3 - r / 75, 0.55, 1),  // 构建期常量：流畅档免逐帧投影
         })
       }
       segs.forEach((seg, si) => {
@@ -866,12 +880,14 @@ const levelY = (rand, i) => Math.max(-0.3, Math.min(0.58, HEIGHT_LEVELS[i % HEIG
             color: showPapers ? seasonalColors(month, false) : seasonalColors(month, dark),
             blend: showPapers ? 'normal' : 'add',
             vert,
+            fog: THREE.MathUtils.clamp(1.3 - r / 75, 0.55, 1),  // 构建期常量：流畅档免逐帧投影
           })
         }
       })
     })
     // 性能上限：超限按环上均匀抽样（整圈铺满；此前 slice(0,N) 只取开头一段导致「扎堆在一处」）
-    return sampleEvenAroundRing(out, liteMode ? 140 : 260)
+    // 手机流畅档上限更低（90）：draw call 与逐帧 JS 是移动端瓶颈（对齐知识库「少 draw call」思路）
+    return sampleEvenAroundRing(out, liteMode ? 90 : 260)
   }, [contentPages, ringOf, showPapers, colors, dark, liteMode])
 
   const visibleStrips = useMemo(() => {
@@ -902,11 +918,12 @@ const levelY = (rand, i) => Math.max(-0.3, Math.min(0.58, HEIGHT_LEVELS[i % HEIG
           photos: Array.isArray(p.photos) ? p.photos : [],
           pos: [rrh * Math.sin(aa) * r, yJit * r, -rrh * Math.cos(aa) * r],
           worldH: r * 0.30 * (r < 28 ? 0.85 : 1),   // 长焦补偿 + 近纸缩小一档
+          fog: THREE.MathUtils.clamp(1.3 - r / 60, 0.6, 1),   // 构建期常量：流畅档免逐帧投影
         })
       }
     })
     // 性能上限：超限按环上均匀抽样（每页在整圈都有代表，不再只渲染开头几页）
-    return sampleEvenAroundRing(out, liteMode ? 30 : 60)
+    return sampleEvenAroundRing(out, liteMode ? 20 : 60)
   }, [contentPages, ringOf, showPapers, liteMode])
 
   const memories = useMemo(() => {
@@ -1043,7 +1060,7 @@ const levelY = (rand, i) => Math.max(-0.3, Math.min(0.58, HEIGHT_LEVELS[i % HEIG
 
   return (
     <div
-      className={`fixed inset-0 z-[56] overflow-hidden select-none bg-gradient-to-b ${skyClass}`}
+      className={`fixed inset-0 z-[56] overflow-hidden select-none touch-none bg-gradient-to-b ${skyClass}`}
       style={{ paddingTop: 'var(--safe-top-js, var(--safe-top, 0px))', ...(bgStyle || {}) }}
       onPointerDown={onPointerDown}
       onPointerMove={onPointerMove}
