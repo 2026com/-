@@ -83,6 +83,15 @@ function buildDemoMemoryPages() {
   return pages
 }
 
+/** 环上均匀抽样：实例数超出性能上限时按序等距取点——整圈照常铺满，不会集中到开头一段弧 */
+function sampleEvenAroundRing(list, cap) {
+  if (list.length <= cap) return list
+  const step = list.length / cap
+  const picked = []
+  for (let i = 0; i < cap; i++) picked.push(list[Math.floor(i * step)])
+  return picked
+}
+
 const headerOf = (ds) => {
   const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(ds || '')
   if (!m) return '新的一页'
@@ -852,7 +861,8 @@ const levelY = (rand, i) => Math.max(-0.3, Math.min(0.58, HEIGHT_LEVELS[i % HEIG
         }
       })
     })
-    return out.slice(0, liteMode ? 140 : 260)
+    // 性能上限：超限按环上均匀抽样（整圈铺满；此前 slice(0,N) 只取开头一段导致「扎堆在一处」）
+    return sampleEvenAroundRing(out, liteMode ? 140 : 260)
   }, [contentPages, ringOf, showPapers, colors, dark, liteMode])
 
   const visibleStrips = useMemo(() => {
@@ -886,7 +896,8 @@ const levelY = (rand, i) => Math.max(-0.3, Math.min(0.58, HEIGHT_LEVELS[i % HEIG
         })
       }
     })
-    return out.slice(0, liteMode ? 30 : 60)
+    // 性能上限：超限按环上均匀抽样（每页在整圈都有代表，不再只渲染开头几页）
+    return sampleEvenAroundRing(out, liteMode ? 30 : 60)
   }, [contentPages, ringOf, showPapers, liteMode])
 
   const memories = useMemo(() => {
