@@ -22,6 +22,8 @@ import { loadLibs, saveLibs, libToPages, DEFAULT_LIB_ID } from './memory-libs/me
  */
 
 const GOLD = ['#ffd98a', '#f5c86b', '#ffe9bd', '#e8b04b']          // 深色主题文字色
+/** 手机端判定：移动端默认走流畅档 + 更低的渲染分辨率（3D 星空在手机上满血跑不动） */
+const IS_MOBILE_DEVICE = typeof navigator !== 'undefined' && /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent || '')
 const DEMO = typeof window !== 'undefined' && window.location.search.includes('gallerydemo')
 const INK = ['#4a4038', '#63513d', '#3c3c3c', '#7a5c3d']           // 浅色主题文字色
 const WEEKDAYS = ['星期日', '星期一', '星期二', '星期三', '星期四', '星期五', '星期六']
@@ -123,9 +125,10 @@ function cycleQualityPref(pref) {
   return pref === 'auto' ? 'hq' : pref === 'hq' ? 'lite' : 'auto'
 }
 
-/** 低端设备启发式（auto 档启动分级依据；运行时 PerfGuard 二次修正） */
+/** 低端设备启发式（auto 档启动分级依据；运行时 PerfGuard 二次修正）：手机端默认流畅档 */
 function detectLowEndDevice() {
   if (typeof navigator === 'undefined') return false
+  if (IS_MOBILE_DEVICE) return true
   try {
     const mem = navigator.deviceMemory
     const cores = navigator.hardwareConcurrency
@@ -386,10 +389,11 @@ function seasonalColors(month, dark) {
 }
 
 /** 单条文字星：竖排/横排纹理，面向球心，呼吸微光；边缘渐隐/退缩 + 深度薄雾 + 开场聚拢 + 聚焦淡出 */
-function TextStar({ strip, onTap, focusOn, focusPageId, introDelay = 0, brightness = 1 }) {
+function TextStar({ strip, onTap, focusOn, focusPageId, introDelay = 0, brightness = 1, lite = false }) {
   const groupRef = useRef(null)
   const matRef = useRef(null)
   const focusK = useRef(0)
+  const frameNo = useRef(0)
   const { camera } = useThree()
   const v3 = useMemo(() => new THREE.Vector3(), [])
   const base = useMemo(() => new THREE.Vector3(...strip.pos), [strip.pos])
@@ -405,6 +409,8 @@ function TextStar({ strip, onTap, focusOn, focusPageId, introDelay = 0, brightne
   useEffect(() => () => tex.texture.dispose(), [tex])
 
   useFrame(({ clock }, dt) => {
+    // 流畅档：隔帧更新（动画 30fps 足够顺滑），JS 每帧成本减半
+    if (lite) { frameNo.current++; if (frameNo.current % 2 === 0) return }
     const t = clock.elapsedTime
     let edgeF = 1
     let fogF = 1
@@ -487,10 +493,11 @@ function PaperTrail({ dark }) {
 
 /** 纸张星：一张纸（日期+正文横竖排+照片画在纸里）绕角色旋转；开场聚拢 + 聚焦淡出 */
 /** 纸张星：一张纸（日期+正文横竖排+照片画在纸里）绕角色旋转；开场聚拢 + 聚焦淡出 */
-function PaperStar({ paper, colors, dark, vertical, onTap, focusOn, focusPageId, introDelay = 0 }) {
+function PaperStar({ paper, colors, dark, vertical, onTap, focusOn, focusPageId, introDelay = 0, lite = false }) {
   const groupRef = useRef(null)
   const matRef = useRef(null)
   const focusK = useRef(0)
+  const frameNo = useRef(0)
   const { camera } = useThree()
   const v3 = useMemo(() => new THREE.Vector3(), [])
   const base = useMemo(() => new THREE.Vector3(...paper.pos), [paper.pos])
@@ -526,6 +533,8 @@ function PaperStar({ paper, colors, dark, vertical, onTap, focusOn, focusPageId,
   }, [paper, colors, built, vertical])
 
   useFrame(({ clock }, dt) => {
+    // 流畅档：隔帧更新（动画 30fps 足够顺滑），JS 每帧成本减半
+    if (lite) { frameNo.current++; if (frameNo.current % 2 === 0) return }
     const t = clock.elapsedTime
     let edgeF = 1
     let fogF = 1
@@ -963,7 +972,7 @@ const levelY = (rand, i) => Math.max(-0.3, Math.min(0.58, HEIGHT_LEVELS[i % HEIG
     const g = skyRef.current
     if (!g) return
     g.rotation.y += dx * 0.0032
-    g.rotation.x = THREE.MathUtils.clamp(g.rotation.x + dy * 0.0026, -0.6, 0.3) // 俯仰受限：抬头范围稍大，低头浅
+    g.rotation.x = THREE.MathUtils.clamp(g.rotation.x + dy * 0.0026, -0.75, 0.4) // 俯仰受限：放宽一档（-0.6,0.3 → -0.75,0.4），抬头低头都能看到上下两层记忆
   }, [])
   const endDrag = useCallback(() => {
     setTimeout(() => { dragRef.current.on = false }, 0)
@@ -1045,7 +1054,7 @@ const levelY = (rand, i) => Math.max(-0.3, Math.min(0.58, HEIGHT_LEVELS[i % HEIG
       onTouchEnd={onTouchEnd}
     >
       <Canvas
-        dpr={liteMode ? 1 : [1, 2]}
+        dpr={liteMode ? 1 : (IS_MOBILE_DEVICE ? 1.5 : [1, 2])}
         camera={{ position: [0, 0, 0.01], fov: 60, near: 0.1, far: 400 }}
         gl={{ antialias: !liteMode, alpha: true, powerPreference: 'high-performance' }}
       >
@@ -1056,11 +1065,11 @@ const levelY = (rand, i) => Math.max(-0.3, Math.min(0.58, HEIGHT_LEVELS[i % HEIG
           <Dust dark={dark} lite={liteMode} brightness={memoryParams.dustBrightness} />
           {showPapers
             ? (<>
-                {papers.map((p, i) => <PaperStar key={p.keyId} paper={p} colors={colors} dark={dark} vertical={orient === 'v'} onTap={handleTap} focusOn={focusOn} focusPageId={selectedId} introDelay={0.15 + (i / Math.max(1, papers.length)) * 1.6} />)}
+                {papers.map((p, i) => <PaperStar key={p.keyId} paper={p} colors={colors} dark={dark} vertical={orient === 'v'} onTap={handleTap} focusOn={focusOn} focusPageId={selectedId} introDelay={0.15 + (i / Math.max(1, papers.length)) * 1.6} lite={liteMode} />)}
                 {/* 纸张模式下：彩色文字浮在纸面前排（季节色相可见） */}
-                {visibleStrips.map((st, i) => <TextStar key={st.id} strip={st} onTap={handleTap} focusOn={focusOn} focusPageId={selectedId} introDelay={0.15 + (i / Math.max(1, visibleStrips.length)) * 1.6} brightness={memoryParams.textBrightness} />)}
+                {visibleStrips.map((st, i) => <TextStar key={st.id} strip={st} onTap={handleTap} focusOn={focusOn} focusPageId={selectedId} introDelay={0.15 + (i / Math.max(1, visibleStrips.length)) * 1.6} brightness={memoryParams.textBrightness} lite={liteMode} />)}
               </>)
-            : visibleStrips.map((st, i) => <TextStar key={st.id} strip={st} onTap={handleTap} focusOn={focusOn} focusPageId={selectedId} introDelay={0.15 + (i / Math.max(1, visibleStrips.length)) * 1.6} brightness={memoryParams.textBrightness} />)}
+            : visibleStrips.map((st, i) => <TextStar key={st.id} strip={st} onTap={handleTap} focusOn={focusOn} focusPageId={selectedId} introDelay={0.15 + (i / Math.max(1, visibleStrips.length)) * 1.6} brightness={memoryParams.textBrightness} lite={liteMode} />)}
         </SkyDome>
       </Canvas>
 
