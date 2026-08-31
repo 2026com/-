@@ -13,6 +13,11 @@ public class MainActivity extends BridgeActivity {
     // 清 WebView HTTP 缓存（只清资源缓存，绝不清 IndexedDB/localStorage 用户数据）：
     // 覆盖安装后旧资源残留会导致「新包跑旧 JS」的诡异问题
     try { bridge.getWebView().clearCache(true); } catch (Throwable t) { /* ignore */ }
+    // 原生自愈：清 Service Worker 注册 + Cache Storage（PWA 缓存）。
+    // 这是「覆盖安装后仍然跑旧包」的元凶：早期版本注册的 SW 会继续吐旧的
+    // index.html/JS（clearCache 清不到 SW 存储），表现为修复「不生效」。
+    // 幂等注入（1.5s / 4s 各一次，仅本进程一次）；发现残留才自动刷新一次。
+    purgeServiceWorkerStorages();
     // 原生侧直建通知渠道（绕开部分 ROM 上 JS 桥 createChannel 挂起的问题；幂等、后台线程）
     NotificationChannelsHelper.ensureCreated(this);
     // 拉起提醒守护前台服务（App 内到点兜底弹出，双保险之一；幂等）
@@ -37,6 +42,24 @@ public class MainActivity extends BridgeActivity {
     // 电池优化白名单：启动后自动申请（全生命周期最多弹 2 次）。
     // 这是守护服务/熄屏提醒能否存活的前提；此前为手动「保活」按钮（用户从未点过）→ 改为自动。
     maybeRequestBatteryWhitelist();
+  }
+
+  /** 反注册全部 Service Worker + 清空 Cache Storage（幂等）；发现残留则刷新页面一次以加载新包 */
+  private void purgeServiceWorkerStorages() {
+    final String js = "(function(){try{if(!(window.Capacitor&&window.Capacitor.isNativePlatform))return;"
+        + "var did=false;"
+        + "var p1=navigator.serviceWorker?navigator.serviceWorker.getRegistrations().then(function(rs){rs.forEach(function(r){did=true;r.unregister();});}).catch(function(){}):null;"
+        + "var p2=(window.caches&&window.caches.keys)?window.caches.keys().then(function(ks){return Promise.all(ks.map(function(k){did=true;return window.caches.delete(k);}));}).catch(function(){}):null;"
+        + "Promise.all([p1,p2]).then(function(){setTimeout(function(){if(did)location.reload();},400);});"
+        + "}catch(e){}})();";
+    final Runnable inject = new Runnable() {
+      @Override public void run() {
+        try { bridge.getWebView().evaluateJavascript(js, null); } catch (Throwable t) { /* ignore */ }
+      }
+    };
+    android.os.Handler h = new android.os.Handler(android.os.Looper.getMainLooper());
+    h.postDelayed(inject, 1500);
+    h.postDelayed(inject, 4000);
   }
 
   private void maybeRequestBatteryWhitelist() {
