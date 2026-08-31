@@ -267,7 +267,7 @@ function drawPaper(canvas, page, colors, imgs, vertical) {
 // ============ 场景组件 ============
 
 /** 背景微尘：跟随主题的暖色/冷灰微尘（流畅档粒子减量） */
-function Dust({ dark, lite }) {
+function Dust({ dark, lite, brightness = 1 }) {
   const dotMap = useMemo(() => makeDotTexture(), [])
   useEffect(() => () => dotMap.dispose(), [dotMap])
   const layers = useMemo(() => {
@@ -295,16 +295,17 @@ function Dust({ dark, lite }) {
   const m1 = useRef(null)
   useFrame(({ clock }) => {
     const t = clock.elapsedTime
-    if (m0.current) m0.current.opacity = (dark ? 0.4 : 0.28) + Math.sin(t * 0.3) * 0.08
-    if (m1.current) m1.current.opacity = (dark ? 0.5 : 0.34) + Math.sin(t * 0.7 + 2) * 0.12
+    // brightness 为外观参数倍率（星尘亮度）
+    if (m0.current) m0.current.opacity = ((dark ? 0.4 : 0.28) + Math.sin(t * 0.3) * 0.08) * brightness
+    if (m1.current) m1.current.opacity = ((dark ? 0.5 : 0.34) + Math.sin(t * 0.7 + 2) * 0.12) * brightness
   })
   return (
     <group>
       <points geometry={layers[0].geo}>
-        <pointsMaterial ref={m0} size={layers[0].size} color={dark ? '#caa25e' : '#9c8b6a'} map={dotMap} transparent opacity={0.4} sizeAttenuation depthWrite={false} />
+        <pointsMaterial ref={m0} size={layers[0].size} color={dark ? '#caa25e' : '#9c8b6a'} map={dotMap} transparent opacity={0.4 * brightness} sizeAttenuation depthWrite={false} />
       </points>
       <points geometry={layers[1].geo}>
-        <pointsMaterial ref={m1} size={layers[1].size} color={dark ? '#ffe3a6' : '#b3a077'} map={dotMap} transparent opacity={0.5} sizeAttenuation depthWrite={false} />
+        <pointsMaterial ref={m1} size={layers[1].size} color={dark ? '#ffe3a6' : '#b3a077'} map={dotMap} transparent opacity={0.5 * brightness} sizeAttenuation depthWrite={false} />
       </points>
     </group>
   )
@@ -320,7 +321,7 @@ function seasonalColors(month, dark) {
 }
 
 /** 单条文字星：竖排/横排纹理，面向球心，呼吸微光；边缘渐隐/退缩 + 深度薄雾 + 开场聚拢 + 聚焦淡出 */
-function TextStar({ strip, onTap, focusOn, focusPageId, introDelay = 0 }) {
+function TextStar({ strip, onTap, focusOn, focusPageId, introDelay = 0, brightness = 1 }) {
   const groupRef = useRef(null)
   const matRef = useRef(null)
   const focusK = useRef(0)
@@ -361,7 +362,7 @@ function TextStar({ strip, onTap, focusOn, focusPageId, introDelay = 0 }) {
       fogF = THREE.MathUtils.clamp(1.3 - dist / 75, 0.55, 1)
       groupRef.current.scale.setScalar((0.78 + 0.22 * edgeF) * (0.55 + 0.45 * ease) * (1 + 0.3 * focusK.current))
     }
-    if (matRef.current) matRef.current.opacity = strip.bright * (0.82 + Math.sin(t * 0.7 + phase) * 0.18) * edgeF * fogF * ease
+    if (matRef.current) matRef.current.opacity = strip.bright * (0.82 + Math.sin(t * 0.7 + phase) * 0.18) * edgeF * fogF * ease * brightness
   })
 
   return (
@@ -981,14 +982,14 @@ const levelY = (rand, i) => Math.max(-0.3, Math.min(0.58, HEIGHT_LEVELS[i % HEIG
         <PerfGuard onLite={() => { setLiteMode(true); pushNotice('已自动切换流畅模式以保持顺滑') }} />
         <Meteor dark={dark} />
         <SkyDome faceAngles={faceAngles} skyRef={skyRef} dragRef={dragRef} targetScaleRef={targetScaleRef} pulseRef={pulseRef} ripples={ripples} dark={dark} speed={memoryParams.rotateSpeed}>
-          <Dust dark={dark} lite={liteMode} />
+          <Dust dark={dark} lite={liteMode} brightness={memoryParams.dustBrightness} />
           {showPapers
             ? (<>
                 {papers.map((p, i) => <PaperStar key={p.keyId} paper={p} colors={colors} dark={dark} vertical={orient === 'v'} onTap={handleTap} focusOn={focusOn} focusPageId={selectedId} introDelay={0.15 + (i / Math.max(1, papers.length)) * 1.6} />)}
                 {/* 纸张模式下：彩色文字浮在纸面前排（季节色相可见） */}
-                {visibleStrips.map((st, i) => <TextStar key={st.id} strip={st} onTap={handleTap} focusOn={focusOn} focusPageId={selectedId} introDelay={0.15 + (i / Math.max(1, visibleStrips.length)) * 1.6} />)}
+                {visibleStrips.map((st, i) => <TextStar key={st.id} strip={st} onTap={handleTap} focusOn={focusOn} focusPageId={selectedId} introDelay={0.15 + (i / Math.max(1, visibleStrips.length)) * 1.6} brightness={memoryParams.textBrightness} />)}
               </>)
-            : visibleStrips.map((st, i) => <TextStar key={st.id} strip={st} onTap={handleTap} focusOn={focusOn} focusPageId={selectedId} introDelay={0.15 + (i / Math.max(1, visibleStrips.length)) * 1.6} />)}
+            : visibleStrips.map((st, i) => <TextStar key={st.id} strip={st} onTap={handleTap} focusOn={focusOn} focusPageId={selectedId} introDelay={0.15 + (i / Math.max(1, visibleStrips.length)) * 1.6} brightness={memoryParams.textBrightness} />)}
         </SkyDome>
       </Canvas>
 

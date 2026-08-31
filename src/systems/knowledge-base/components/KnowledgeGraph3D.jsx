@@ -391,7 +391,7 @@ const LINK_WHITE = new THREE.Color('#ffffff')
  *    单条线极淡,大量重叠处靠加性混合自然叠出发光彩雾);
  *  - 「两端细、中间略粗」:每条边拆 a→m、m→b 两段,中点仅轻微上调 8%。
  */
-function GraphLinks({ graph, layoutMap, nodesById, activeCat }) {
+function GraphLinks({ graph, layoutMap, nodesById, activeCat, brightness = 1 }) {
   const plain = useMemo(() => {
     const positions = []
     const colors = []
@@ -452,8 +452,8 @@ function GraphLinks({ graph, layoutMap, nodesById, activeCat }) {
 
   return (
     <lineSegments geometry={plain}>
-      {/* 低透明度 0.38 × 顶点亮度调制:单条线极淡,密集重叠才叠出粉彩光雾(对齐参考图) */}
-      <lineBasicMaterial vertexColors transparent opacity={0.38} depthWrite={false} blending={THREE.AdditiveBlending} />
+      {/* 低透明度 0.38 × 顶点亮度调制:单条线极淡,密集重叠才叠出粉彩光雾(对齐参考图)；brightness 为外观参数倍率 */}
+      <lineBasicMaterial vertexColors transparent opacity={0.38 * brightness} depthWrite={false} blending={THREE.AdditiveBlending} />
     </lineSegments>
   )
 }
@@ -952,8 +952,9 @@ function GraphScene({ graph, layout, layoutMap, nodesById, adjacency, maxDegree,
       <directionalLight position={[60, 90, 50]} intensity={0.4} />
 
       {/* 微弱雾效（全画质常驻）：远处连线自然没入黑暗增强纵深；
-          点云在着色器内复刻同曲线衰减，星空/标签/热区材质已显式 fog=false 豁免 */}
-      <fogExp2 attach="fog" args={['#0a1030', 0.003]} />
+          点云在着色器内复刻同曲线衰减，星空/标签/热区材质已显式 fog=false 豁免；
+          fogDensity 为外观参数倍率（星云雾感） */}
+      <fogExp2 attach="fog" args={['#0a1030', 0.003 * (params?.fogDensity ?? 1)]} />
 
       {/* 常驻包裹图谱的「星光壳」:白色星尘壳 + 十字星芒大星,近距自动淡出 */}
       <StarShell radius={shellRadius} liteMode={liteMode} />
@@ -964,7 +965,7 @@ function GraphScene({ graph, layout, layoutMap, nodesById, adjacency, maxDegree,
       {/* 内部星尘:球体内常驻的白色微尘,「星球内部也是星空」的质感 */}
       <NebulaDust radius={shellRadius} liteMode={liteMode} />
 
-      <GraphLinks graph={graph} layoutMap={layoutMap} nodesById={nodesById} activeCat={activeCat} />
+      <GraphLinks graph={graph} layoutMap={layoutMap} nodesById={nodesById} activeCat={activeCat} brightness={params?.linkBrightness ?? 1} />
       {hqMode && (
         <GraphPointsHQ
           layout={layout}
@@ -1395,7 +1396,7 @@ export default function KnowledgeGraph3D({
         {hqMode && (
           <EffectComposer multisampling={0}>
             <Bloom
-              intensity={1.22}
+              intensity={1.22 * appearanceParams.glowIntensity}
               luminanceThreshold={0.16}
               luminanceSmoothing={0.3}
               mipmapBlur

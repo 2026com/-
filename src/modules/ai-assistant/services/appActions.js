@@ -11,9 +11,10 @@ import { SURFACES, SURFACE_NAMES, PARAM_DEFS, setBackground, setParams, resetBac
 export const APP_ACTION_PROTOCOL = `
 【背景与外观调节能力】当且仅当用户明确要求更换背景或调节外观参数时，在回复的末尾另起一行输出一条 JSON 指令（用 \`\`\`json 代码块包裹），先用人话简短说明你要做什么。可用指令仅有三种：
 1. 换背景：\`\`\`json\n{"action":"set_background","surface":"knowledge|memory|notebook","bg":{"type":"gradient","from":"#0a1030","to":"#252b38","angle":160}}\n\`\`\` 或 {"type":"color","value":"#101010"}（gradient 为双色渐变，angle 可选 0~360）
-2. 调参数：\`\`\`json\n{"action":"set_params","surface":"knowledge|memory","params":{"参数名":数值}}\n\`\`\`
-   knowledge 可调参数：starDensity 星空密度(0.3~3，默认1)、starBrightness 星光亮度(0.3~3，默认1)；
-   memory 可调参数：rotateSpeed 旋转速度(0.2~5，默认1，1=每100秒转一圈)。
+2. 调参数：\`\`\`json\n{"action":"set_params","surface":"knowledge|memory|notebook","params":{"参数名":数值}}\n\`\`\`
+   knowledge 可调参数：starDensity 星空密度(0.3~3，默认1)、starBrightness 星光亮度(0.3~3，默认1)、linkBrightness 连线亮度(0.2~3，默认1)、glowIntensity 辉光强度(0~3，默认1)、fogDensity 星云雾感(0.2~2，默认1)；
+   memory 可调参数：rotateSpeed 旋转速度(0.2~5，默认1，1=每100秒转一圈)、dustBrightness 星尘亮度(0.2~3，默认1)、textBrightness 文字亮度(0.3~2，默认1)；
+   notebook 可调参数：lineSpacing 行距(0.8~1.6，默认1，1=标准行高37px)、fontSize 字号(0.8~1.4，默认1，1=标准字号15.5px)。
 3. 恢复默认：\`\`\`json\n{"action":"reset_background","surface":"knowledge|memory|notebook|all"}\n\`\`\`（背景和参数一并还原默认）
 surface 含义：knowledge=3D知识库，memory=记忆库，notebook=横线本；all=全部恢复默认。
 规则：用户没要求时绝不输出指令；用户说「星星多点/转快点/亮一点」等模糊需求时映射到对应参数并取合理值；每次只输出一条指令。`

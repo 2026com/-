@@ -20,11 +20,19 @@ export const PARAM_DEFS = {
   knowledge: {
     starDensity:    { label: '星空密度', min: 0.3, max: 3, def: 1 },
     starBrightness: { label: '星光亮度', min: 0.3, max: 3, def: 1 },
+    linkBrightness: { label: '连线亮度', min: 0.2, max: 3, def: 1 },
+    glowIntensity:  { label: '辉光强度', min: 0,   max: 3, def: 1 },  // 仅高清画质档生效（Bloom）
+    fogDensity:     { label: '星云雾感', min: 0.2, max: 2, def: 1 },
   },
   memory: {
     rotateSpeed:    { label: '旋转速度', min: 0.2, max: 5, def: 1 },  // 1 = 每 100 秒转一圈
+    dustBrightness: { label: '星尘亮度', min: 0.2, max: 3, def: 1 },
+    textBrightness: { label: '文字亮度', min: 0.3, max: 2, def: 1 },
   },
-  notebook: {},
+  notebook: {
+    lineSpacing:    { label: '行距',     min: 0.8, max: 1.6, def: 1 },  // 1 = 37px 标准行高
+    fontSize:       { label: '字号',     min: 0.8, max: 1.4, def: 1 },  // 1 = 15.5px 标准字号
+  },
 }
 
 function loadAll() {

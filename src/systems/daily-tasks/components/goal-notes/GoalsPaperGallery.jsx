@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react'
 import MemoryUniverse3D from './MemoryUniverse3D.jsx'
+import { useSurfaceParams } from '../../../../services/backgrounds.js'
 
 /**
  * 长期目标 · 横线本「记录总览」画廊（纯新增组件，不改动原页面逻辑）
@@ -66,6 +67,10 @@ const demoPages = DEMO ? [
 function MiniPage({ page, aspect }) {
   const ref = useRef(null)
   const [w, setW] = useState(0)
+  // 排版参数（纯新增）：与真实横线本同步的行距/字号倍率，保证缩略页与真实页一致
+  const nbParams = useSurfaceParams('notebook')
+  const LINE_H_EFF = Math.round(LINE_H * nbParams.lineSpacing)
+  const FONT_EFF = FONT_SIZE * nbParams.fontSize
   useEffect(() => {
     if (!ref.current) return
     const ro = new ResizeObserver((es) => setW(es[0].contentRect.width))
@@ -74,7 +79,7 @@ function MiniPage({ page, aspect }) {
   }, [])
   // 页面区域宽高比 → 基准稿纸尺寸与行数（与真实横线本同比例）
   const replicaH = Math.round(REPLICA_W / aspect)
-  const lineCount = Math.max(1, Math.floor((replicaH - PAD_TOP * 2 - LINE_H) / LINE_H))
+  const lineCount = Math.max(1, Math.floor((replicaH - PAD_TOP * 2 - LINE_H_EFF) / LINE_H_EFF))
   const scale = w > 0 ? w / REPLICA_W : 0
   const lines = (page.text || '').split('\n').slice(0, lineCount)
   const weather = readWeather(page.date)
@@ -84,21 +89,21 @@ function MiniPage({ page, aspect }) {
         <div
           style={{
             width: REPLICA_W, height: replicaH, transform: `scale(${scale})`, transformOrigin: 'top left',
-            backgroundImage: `repeating-linear-gradient(to bottom, transparent, transparent ${LINE_H - 1}px, #dbe3ee ${LINE_H - 1}px, #dbe3ee ${LINE_H}px)`,
+            backgroundImage: `repeating-linear-gradient(to bottom, transparent, transparent ${LINE_H_EFF - 1}px, #dbe3ee ${LINE_H_EFF - 1}px, #dbe3ee ${LINE_H_EFF}px)`,
             backgroundPosition: `0 ${PAD_TOP}px`,
             position: 'relative',
           }}
         >
           {/* 页眉行：日期 · 星期 · 天气（与原页格式一致） */}
           <div style={{ height: PAD_TOP }} />
-          <div style={{ height: LINE_H, display: 'flex', alignItems: 'center', padding: `0 ${PAD_X}px` }}>
+          <div style={{ height: LINE_H_EFF, display: 'flex', alignItems: 'center', padding: `0 ${PAD_X}px` }}>
             <span style={{ fontSize: 13, fontWeight: 600, color: '#64748b', whiteSpace: 'nowrap', overflow: 'hidden' }}>{headerOf(page.date)}</span>
             <span style={{ flex: 1 }} />
             <span style={{ fontSize: 13, color: '#64748b' }}>{weather}</span>
           </div>
           {/* 正文行 */}
           {lines.map((t, i) => (
-            <div key={i} style={{ height: LINE_H, lineHeight: `${LINE_H}px`, fontSize: FONT_SIZE, color: '#334155', padding: `0 ${PAD_X}px`, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'clip' }}>
+            <div key={i} style={{ height: LINE_H_EFF, lineHeight: `${LINE_H_EFF}px`, fontSize: FONT_EFF, color: '#334155', padding: `0 ${PAD_X}px`, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'clip' }}>
               {t}
             </div>
           ))}

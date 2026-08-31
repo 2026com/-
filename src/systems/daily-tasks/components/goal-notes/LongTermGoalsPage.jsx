@@ -57,14 +57,18 @@ export default function LongTermGoalsPage() {
   const [, setWeatherTick] = useState(0)          // 天气点击后强制刷新
   // 背景/皮肤（纯新增）：AI 或图片换背景后垫在横线下面即时生效；null = 保持白纸
   const paperBg = useSurfaceBackground('notebook')
+  // 排版参数（纯新增）：行距/字号倍率（AI 可调）；基准 = 37px 行高 / 15.5px 字号
+  const nbParams = useSurfaceParams('notebook')
+  const LINE_H_EFF = Math.round(LINE_H * nbParams.lineSpacing)
+  const FONT_EFF = FONT_SIZE * nbParams.fontSize
 
-  // 屏幕高度 → 每页行数（扣除顶部留白 + 页眉行）
+  // 屏幕高度 → 每页行数（扣除顶部留白 + 页眉行）；行距参数变化时重新测量
   useEffect(() => {
     const measure = () => {
       const el = wrapRef.current
       if (!el) return
-      const usable = el.clientHeight - PAD_TOP * 2 - LINE_H - 8
-      setMaxLines(Math.max(8, Math.floor(usable / LINE_H)))
+      const usable = el.clientHeight - PAD_TOP * 2 - LINE_H_EFF - 8
+      setMaxLines(Math.max(8, Math.floor(usable / LINE_H_EFF)))
     }
     measure()
     window.addEventListener('resize', measure)
@@ -73,7 +77,7 @@ export default function LongTermGoalsPage() {
       window.removeEventListener('resize', measure)
       window.removeEventListener('orientationchange', measure)
     }
-  }, [])
+  }, [LINE_H_EFF])
 
   // 初始化：旧单文本迁移为 pages[]；每天进入 → 今天没有页则自动新建；定位到今天最新一页
   // （整体 try/catch 兜底：本地存储出现任何异常数据也不允许白屏/错误页）
@@ -339,10 +343,10 @@ export default function LongTermGoalsPage() {
         ref={wrapRef}
         className="flex-1 overflow-hidden relative"
         style={{
-          // 自定义背景时垫在横线下面（多背景层：背景在前、横线在后），默认保持纯白稿纸
+          // 自定义背景时垫在横线下面（多背景层：背景在前、横线在后），默认保持纯白稿纸；行高用 LINE_H_EFF（行距参数倍率）
           backgroundImage: paperBg
-            ? `${paperBg}, repeating-linear-gradient(to bottom, transparent, transparent ${LINE_H - 1}px, ${lineColor} ${LINE_H - 1}px, ${lineColor} ${LINE_H}px)`
-            : `repeating-linear-gradient(to bottom, transparent, transparent ${LINE_H - 1}px, ${lineColor} ${LINE_H - 1}px, ${lineColor} ${LINE_H}px)`,
+            ? `${paperBg}, repeating-linear-gradient(to bottom, transparent, transparent ${LINE_H_EFF - 1}px, ${lineColor} ${LINE_H_EFF - 1}px, ${lineColor} ${LINE_H_EFF}px)`
+            : `repeating-linear-gradient(to bottom, transparent, transparent ${LINE_H_EFF - 1}px, ${lineColor} ${LINE_H_EFF - 1}px, ${lineColor} ${LINE_H_EFF}px)`,
           backgroundPosition: `0 ${PAD_TOP}px`,
         }}
       >
@@ -354,7 +358,7 @@ export default function LongTermGoalsPage() {
         )}
         <div style={{ height: PAD_TOP }} />
         {/* 页眉行（不可编辑）：日期 · 星期 · 天气（点击切换，按天记忆） */}
-        <div className="flex items-center px-6 select-none" style={{ height: LINE_H }}>
+        <div className="flex items-center px-6 select-none" style={{ height: LINE_H_EFF }}>
           <span className="text-[13px] font-semibold text-slate-500 dark:text-slate-400 truncate">
             {curPage ? headerOf(curPage.date) : ''}
           </span>
@@ -379,7 +383,7 @@ export default function LongTermGoalsPage() {
             spellCheck={false}
             autoComplete="off"
             className="w-full block bg-transparent outline-none placeholder:text-slate-300 text-slate-700 dark:text-slate-200"
-            style={{ height: LINE_H, lineHeight: `${LINE_H}px`, fontSize: FONT_SIZE, padding: `0 ${PAD_X}px` }}
+            style={{ height: LINE_H_EFF, lineHeight: `${LINE_H_EFF}px`, fontSize: FONT_EFF, padding: `0 ${PAD_X}px` }}
           />
         ))}
       </div>
