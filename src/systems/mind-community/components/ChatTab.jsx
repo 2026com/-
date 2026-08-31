@@ -5,9 +5,9 @@ import { pushBackHandler } from '../../../utils/backStack.js'
 
 /**
  * 聊天 Tab（板块内 Tab3）：好友列表 + 一对一聊天
- * - 数据来源：本地模拟；好友来自预置模拟用户，「添加」即模拟通过；
- * - 发送消息后由好友延时自动回复一条（本地模拟活跃感），只写本地存储；
- * - 聊天窗口为自绘浮层，注册返回键栈（backStack）保证安卓返回键先回好友列表。
+ * - 【已停用模拟好友】不再展示「可能认识的人」，好友列表默认为空；
+ *   聊天体系等接入真实用户（账号系统/后端）后开放；
+ * - 下方聊天窗口代码保留（真实好友接入后复用），当前无好友不可达。
  */
 
 function userOf(id) {
@@ -18,17 +18,7 @@ export default function ChatTab() {
   const [state, setState] = useState(() => loadMindState())
   const [activeFriendId, setActiveFriendId] = useState(null)
 
-  const update = (next) => {
-    setState(next)
-    saveMindState(next)
-  }
-
-  const addFriend = (userId) => {
-    if (state.friends.includes(userId)) return
-    update({ ...state, friends: [...state.friends, userId], chats: { ...state.chats, [userId]: state.chats[userId] || [] } })
-  }
-
-  /** 追加一条消息：函数式更新避免旧闭包覆盖丢消息（自动回复延时回调捕获的 state 可能已过期） */
+  /** 追加一条消息：函数式更新避免旧闭包覆盖丢消息 */
   const appendMessage = (friendId, msg) => {
     setState(prev => {
       const next = { ...prev, chats: { ...prev.chats, [friendId]: [...(prev.chats[friendId] || []), msg] } }
@@ -38,7 +28,6 @@ export default function ChatTab() {
   }
 
   const friends = MOCK_USERS.filter(u => state.friends.includes(u.id))
-  const strangers = MOCK_USERS.filter(u => !state.friends.includes(u.id))
   const activeFriend = activeFriendId ? userOf(activeFriendId) : null
 
   // 聊天窗口打开时注册返回键：返回键回好友列表而非退出页面
@@ -56,55 +45,39 @@ export default function ChatTab() {
     <div className="h-full w-full relative bg-slate-50 overflow-hidden">
       {/* ===== 好友列表 ===== */}
       <div className="h-full overflow-y-auto px-3 pt-3 pb-4">
-        {/* 好友 */}
+        {/* 好友（真实好友接入前保持为空，不展示任何模拟用户） */}
         <div className="text-xs text-slate-400 px-1 mb-2">好友（{friends.length}）</div>
-        <div className="bg-white rounded-xl border border-slate-200 divide-y divide-slate-100">
-          {friends.map(u => {
-            const last = lastMessageOf(u.id)
-            return (
-              <button
-                key={u.id}
-                onClick={() => setActiveFriendId(u.id)}
-                className="w-full flex items-center gap-3 p-3 text-left touch-feedback hover:bg-slate-50"
-              >
-                <div className="w-10 h-10 rounded-full bg-indigo-50 flex items-center justify-center text-xl shrink-0">{u.avatar}</div>
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-baseline justify-between gap-2">
-                    <span className="text-sm font-semibold text-slate-800">{u.name}</span>
-                    {last && <span className="text-[10px] text-slate-300 shrink-0">{timeAgo(last.createdAt)}</span>}
-                  </div>
-                  <div className="text-xs text-slate-400 truncate">{last ? last.content : '开始聊几句吧'}</div>
-                </div>
-              </button>
-            )
-          })}
-        </div>
-
-        {/* 可能认识的人（模拟：点击即添加） */}
-        {strangers.length > 0 && (
-          <>
-            <div className="text-xs text-slate-400 px-1 mt-5 mb-2">可能认识的人</div>
-            <div className="bg-white rounded-xl border border-slate-200 divide-y divide-slate-100">
-              {strangers.map(u => (
-                <div key={u.id} className="flex items-center gap-3 p-3">
+        {friends.length === 0 ? (
+          <div className="bg-white rounded-xl border border-slate-200 px-4 py-12 text-center">
+            <div className="text-3xl mb-2">🫂</div>
+            <div className="text-sm text-slate-500 font-medium">暂无好友</div>
+            <div className="text-xs text-slate-400 mt-1">聊天功能将在后续版本接入真实用户后开放</div>
+          </div>
+        ) : (
+          <div className="bg-white rounded-xl border border-slate-200 divide-y divide-slate-100">
+            {friends.map(u => {
+              const last = lastMessageOf(u.id)
+              return (
+                <button
+                  key={u.id}
+                  onClick={() => setActiveFriendId(u.id)}
+                  className="w-full flex items-center gap-3 p-3 text-left touch-feedback hover:bg-slate-50"
+                >
                   <div className="w-10 h-10 rounded-full bg-indigo-50 flex items-center justify-center text-xl shrink-0">{u.avatar}</div>
                   <div className="flex-1 min-w-0">
-                    <div className="text-sm font-semibold text-slate-800">{u.name}</div>
-                    <div className="text-xs text-slate-400 truncate">{u.bio}</div>
+                    <div className="flex items-baseline justify-between gap-2">
+                      <span className="text-sm font-semibold text-slate-800">{u.name}</span>
+                      {last && <span className="text-[10px] text-slate-300 shrink-0">{timeAgo(last.createdAt)}</span>}
+                    </div>
+                    <div className="text-xs text-slate-400 truncate">{last ? last.content : '开始聊几句吧'}</div>
                   </div>
-                  <button
-                    onClick={() => addFriend(u.id)}
-                    className="text-xs px-3 py-1.5 rounded-full bg-indigo-600 text-white active:scale-95 transition-transform shrink-0"
-                  >
-                    ＋ 添加
-                  </button>
-                </div>
-              ))}
-            </div>
-          </>
+                </button>
+              )
+            })}
+          </div>
         )}
 
-        <div className="text-center text-[11px] text-slate-300 pt-4">第一期为本地模拟 · 好友与消息仅存于本机</div>
+        <div className="text-center text-[11px] text-slate-300 pt-4">社区与聊天为本地功能 · 好友体系将在接入真实账号后开放</div>
       </div>
 
       {/* ===== 聊天窗口（浮层） ===== */}

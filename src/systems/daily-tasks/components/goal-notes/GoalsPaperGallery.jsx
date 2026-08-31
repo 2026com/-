@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react'
 import MemoryUniverse3D from './MemoryUniverse3D.jsx'
 import { useSurfaceParams } from '../../../../services/backgrounds.js'
+import { pushBackHandler } from '../../../../utils/backStack.js'
 
 /**
  * 长期目标 · 横线本「记录总览」画廊（纯新增组件，不改动原页面逻辑）
@@ -159,6 +160,13 @@ export default function GoalsPaperGallery({ pages = [], onClose, onJump }) {
     return () => window.removeEventListener('keydown', onKey)
   }, [lightbox, onClose])
 
+  // 安卓返回键 / 侧滑返回：按层级关闭（3D 记忆库 → 照片大图 → 画廊本体），与 Esc 行为一致
+  useEffect(() => pushBackHandler(() => {
+    if (showMemory) setShowMemory(false)
+    else if (lightbox) setLightbox(null)
+    else if (onClose) onClose()
+  }), [showMemory, lightbox, onClose])
+
   // 横线本页面区域 ≈ 视口去掉顶栏/标题栏/翻页条/底部Tab（与真实页面同比例）
   const aspect = useMemo(() => {
     const paperW = vp.w
@@ -184,7 +192,7 @@ export default function GoalsPaperGallery({ pages = [], onClose, onJump }) {
   const cardSize = 'text-[10px] sm:text-[11px]'
 
   return (
-    <div className="fixed inset-0 z-[55] bg-white flex flex-col">
+    <div className="fixed inset-0 z-[55] bg-white flex flex-col" style={{ paddingTop: 'var(--safe-top-js, var(--safe-top, 0px))' }}>
       {/* 顶栏：标题 + 关闭 */}
       <div className="shrink-0 h-11 flex items-center justify-between px-4 border-b border-slate-100">
         <h2 className="text-[14px] sm:text-[15px] font-bold text-slate-800 tracking-wide">

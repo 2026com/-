@@ -964,7 +964,7 @@ const levelY = (rand, i) => Math.max(-0.3, Math.min(0.58, HEIGHT_LEVELS[i % HEIG
   return (
     <div
       className={`fixed inset-0 z-[56] overflow-hidden select-none bg-gradient-to-b ${skyClass}`}
-      style={bgStyle || undefined}
+      style={{ paddingTop: 'var(--safe-top-js, var(--safe-top, 0px))', ...(bgStyle || {}) }}
       onPointerDown={onPointerDown}
       onPointerMove={onPointerMove}
       onPointerUp={endDrag}

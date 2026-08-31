@@ -1,5 +1,5 @@
 import { dbGet, dbSet } from '../../../services/db.js'
-import { buildSeedState } from './mockData.js'
+import { ME_USER } from './mockData.js'
 
 /**
  * 心理情绪板块 · 本地持久化层（第一期：本地模拟，无后端）
@@ -20,18 +20,30 @@ import { buildSeedState } from './mockData.js'
 const STORAGE_KEY = 'growth_app_v1_mind_community'
 
 /**
- * 读取板块状态；首次打开（无存档）时用种子数据初始化并落库。
+ * 读取板块状态；【已停用种子】不再预置任何模拟内容——首访即空白社区/空白聊天，
+ * 社区与好友体系等接入真实用户后开放。旧存档里残留的模拟内容在读取时一次性清洗。
  * 同步返回（db.js 内存镜像语义，启动门已保证就绪）。
  */
 export function loadMindState() {
   const saved = dbGet(STORAGE_KEY, null)
   if (saved && typeof saved === 'object' && Array.isArray(saved.posts)) {
-    return { friends: [], likedPostIds: [], chats: {}, ...saved }
+    // 旧版本可能残留预置模拟内容 → 只保留「我」真实发的内容
+    return { friends: [], likedPostIds: [], chats: {}, ...purgeLegacyMock(saved) }
   }
-  // 无存档 → 种子数据初始化并落库
-  const seeded = buildSeedState()
-  dbSet(STORAGE_KEY, seeded)
-  return seeded
+  const empty = { friends: [], likedPostIds: [], posts: [], chats: {} }
+  dbSet(STORAGE_KEY, empty)
+  return empty
+}
+
+/** 清洗旧版预置的模拟数据：示例帖子(sp*)、模拟用户的帖子、模拟好友(u1-u5)及其聊天记录 */
+function purgeLegacyMock(s) {
+  const posts = (s.posts || []).filter(p => p && p.userId === ME_USER.id && !/^sp\d+$/.test(p.id || ''))
+  const keepIds = new Set(posts.map(p => p.id))
+  const likedPostIds = (s.likedPostIds || []).filter(id => keepIds.has(id))
+  const chats = {}
+  Object.entries(s.chats || {}).forEach(([uid, msgs]) => { if (!/^u\d+$/.test(uid)) chats[uid] = msgs })
+  const friends = (s.friends || []).filter(id => !/^u\d+$/.test(id))
+  return { ...s, posts, likedPostIds, chats, friends }
 }
 
 /** 保存板块状态（写入内存镜像并异步落盘 IndexedDB） */
