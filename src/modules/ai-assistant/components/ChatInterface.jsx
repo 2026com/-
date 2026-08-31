@@ -7,6 +7,8 @@ import AIConfigPanel from '../../../components/ai/AIConfigPanel.jsx'
 import KnowledgeImportPanel from './KnowledgeImportPanel.jsx'
 import { dbGet, dbSet } from '../../../services/db.js'
 import { pushBackHandler } from '../../../utils/backStack.js'
+import { createPortal } from 'react-dom'
+import ChatFullScreen, { PROVIDER_META } from './fullscreen/ChatFullScreen.jsx'
 
 /**
  * 常驻可收起侧边 AI 对话窗口
@@ -53,6 +55,207 @@ export default function AIChatSidebar({ onOpenConfig, embedded = false }) {
       window.removeEventListener('keydown', onKey)
     }
   }, [fullscreen])
+
+  // ==================== 全屏模式：多会话 + 模型档案（模块内自持，IndexedDB 存取，不改全局 reducer） ====================
+  const SESSIONS_KEY = 'ai.chat.sessions.v1'
+  const CURRENT_SESSION_KEY = 'ai.chat.currentSession.v1'
+  const MODEL_PROFILES_KEY = 'ai.model.profiles.v1'
+  const [sessions, setSessions] = useState([])
+  const [currentSessionId, setCurrentSessionId] = useState(null)
+  const [modelProfiles, setModelProfiles] = useState({})
+
+  // 最新值镜像（持久化/切换会话的回调里读取，避免闭包旧值）
+  const messagesRef = useRef([]); messagesRef.current = messages
+  const sessionsRef = useRef([]); sessionsRef.current = sessions
+  const curSidRef = useRef(null); curSidRef.current = currentSessionId
+  const profilesRef = useRef({}); profilesRef.current = modelProfiles
+  const fullscreenRef = useRef(false); fullscreenRef.current = fullscreen
+  const persistTimerRef = useRef(null)
+
+  // 会话标题：取第一条用户消息截断
+  const deriveTitle = (msgs) => {
+    const first = (msgs || []).find(m => m.role === 'user')
+    if (!first) return ''
+    const t = String(first.content || '').replace(/\s+/g, ' ').trim()
+    return t.length > 24 ? t.slice(0, 24) + '…' : t
+  }
+
+  // 全局 aiHistory → 指定会话内容（切换/恢复时用；逐条 APPEND，语义与现有 reducer 完全一致）
+  const syncHistory = (msgs) => {
+    dispatch({ type: 'RESET_AI_HISTORY' })
+    ;(msgs || []).forEach(m => dispatch({ type: 'APPEND_AI_MESSAGE', payload: { message: m } }))
+  }
+
+  // 立即把当前对话写入当前会话（防抖的立即版；切换会话/新建前调用防丢尾消息）
+  const persistNow = () => {
+    if (persistTimerRef.current) { clearTimeout(persistTimerRef.current); persistTimerRef.current = null }
+    if (!fullscreenRef.current) return
+    const hist = messagesRef.current
+    if (!hist || hist.length === 0) return
+    const prev = sessionsRef.current
+    const sid = curSidRef.current
+    const title = deriveTitle(hist)
+    let next
+    if (sid && prev.some(s => s.id === sid)) {
+      next = prev.map(s => s.id === sid ? { ...s, messages: hist, title: title || s.title, updatedAt: Date.now() } : s)
+    } else {
+      const newSid = uid('sess')
+      next = [{ id: newSid, title: title || '新对话', messages: hist, createdAt: Date.now(), updatedAt: Date.now() }, ...prev]
+      setCurrentSessionId(newSid)
+      dbSet(CURRENT_SESSION_KEY, newSid)
+    }
+    setSessions(next)
+    dbSet(SESSIONS_KEY, next)
+  }
+
+  // 进入全屏：载入会话与模型档案；有进行中对话 → 归档为当前会话；空对话 → 恢复上次会话内容
+  useEffect(() => {
+    if (!fullscreen) return undefined
+    let cancelled = false
+    try {
+      const stored = dbGet(SESSIONS_KEY) || []
+      const list = Array.isArray(stored) ? stored : []
+      const profiles = dbGet(MODEL_PROFILES_KEY) || {}
+      const savedCurId = dbGet(CURRENT_SESSION_KEY) || null
+      if (cancelled) return undefined
+      setSessions(list)
+      setModelProfiles(profiles || {})
+      const hist = messagesRef.current || []
+      if (hist.length > 0) {
+        // 当前有进行中的对话：归档到「当前会话」（复用已存的 current id，没有则新建档）
+        const valid = savedCurId && list.some(s => s.id === savedCurId)
+        if (valid) {
+          const next = list.map(s => s.id === savedCurId ? { ...s, messages: hist, title: deriveTitle(hist) || s.title, updatedAt: Date.now() } : s)
+          setSessions(next)
+          dbSet(SESSIONS_KEY, next)
+          setCurrentSessionId(savedCurId)
+        } else {
+          const newSid = uid('sess')
+          const next = [{ id: newSid, title: deriveTitle(hist) || '新对话', messages: hist, createdAt: Date.now(), updatedAt: Date.now() }, ...list]
+          setSessions(next)
+          dbSet(SESSIONS_KEY, next)
+          setCurrentSessionId(newSid)
+          dbSet(CURRENT_SESSION_KEY, newSid)
+        }
+      } else {
+        const cur = savedCurId && list.find(s => s.id === savedCurId)
+        if (cur && (cur.messages || []).length > 0) {
+          // 空对话进入全屏 + 上次有会话 → 恢复上次会话内容到全局 aiHistory
+          setCurrentSessionId(cur.id)
+          syncHistory(cur.messages)
+        } else {
+          setCurrentSessionId(null)
+        }
+      }
+    } catch (e) { /* 存取失败静默：会话功能不阻塞聊天主流程 */ }
+    return () => { cancelled = true }
+  }, [fullscreen])
+
+  // 全屏中消息变化：250ms 防抖写入当前会话
+  useEffect(() => {
+    if (!fullscreen) return undefined
+    const t = setTimeout(() => {
+      const hist = messagesRef.current
+      if (!hist || hist.length === 0) return
+      persistNow()
+    }, 250)
+    persistTimerRef.current = t
+    return () => clearTimeout(t)
+  }, [messages.length, fullscreen])
+
+  // 用户在 ⚙️ 面板改了当前模型配置 → 自动归档到该服务商的档案（切换模型互不覆盖）
+  useEffect(() => {
+    if (!fullscreen || !aiConfig?.provider) return
+    const profiles = { ...(profilesRef.current || {}) }
+    const cur = profiles[aiConfig.provider] || {}
+    if (cur.apiKey === aiConfig.apiKey && cur.baseUrl === aiConfig.baseUrl && cur.modelId === aiConfig.modelId) return
+    profiles[aiConfig.provider] = { baseUrl: aiConfig.baseUrl, modelId: aiConfig.modelId, apiKey: aiConfig.apiKey }
+    setModelProfiles(profiles)
+    dbSet(MODEL_PROFILES_KEY, profiles)
+  }, [aiConfig, fullscreen])
+
+  // ⊕ 新建对话：当前对话已落盘，切到空白未建档会话
+  const handleNewChat = () => {
+    persistNow()
+    setCurrentSessionId(null)
+    dbSet(CURRENT_SESSION_KEY, null)
+    dispatch({ type: 'RESET_AI_HISTORY' })
+  }
+
+  // 切换历史会话：先落盘当前 → 恢复目标会话内容
+  const handleSwitchSession = (sid) => {
+    const target = sessionsRef.current.find(x => x.id === sid)
+    if (!target) return
+    persistNow()
+    setCurrentSessionId(sid)
+    dbSet(CURRENT_SESSION_KEY, sid)
+    syncHistory(target.messages || [])
+  }
+
+  // 删除会话（二次确认；删当前会话则自动切到最新一条或开新会话）
+  const handleDeleteSession = (sid) => {
+    const s = sessionsRef.current.find(x => x.id === sid)
+    if (!s) return
+    dispatch({
+      type: 'PUSH_MODAL',
+      payload: {
+        type: 'confirm',
+        title: '删除此会话？',
+        message: `「${s.title || '新对话'}」将被删除，无法恢复。`,
+        okText: '删除',
+        onOk: () => {
+          const next = sessionsRef.current.filter(x => x.id !== sid)
+          setSessions(next)
+          dbSet(SESSIONS_KEY, next)
+          if (sid === curSidRef.current) {
+            const newest = [...next].sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0))[0]
+            if (newest) handleSwitchSession(newest.id)
+            else handleNewChat()
+          } else {
+            dispatch({ type: 'PUSH_MODAL', payload: { type: 'toast', message: '🗑 已删除该会话' } })
+          }
+        }
+      }
+    })
+  }
+
+  // 清空全部会话（二次确认）
+  const handleClearAllSessions = () => {
+    dispatch({
+      type: 'PUSH_MODAL',
+      payload: {
+        type: 'confirm',
+        title: '清空全部聊天记录？',
+        message: '所有会话（含当前对话）将从本地永久删除，无法恢复。',
+        okText: '清空',
+        onOk: () => {
+          setSessions([])
+          setCurrentSessionId(null)
+          dbSet(SESSIONS_KEY, [])
+          dbSet(CURRENT_SESSION_KEY, null)
+          dispatch({ type: 'RESET_AI_HISTORY' })
+          dispatch({ type: 'PUSH_MODAL', payload: { type: 'toast', message: '✅ 已清空全部聊天记录' } })
+        }
+      }
+    })
+  }
+
+  // 底部胶囊切换模型：当前配置先存回旧服务商档案，再载入目标档案（无档案用默认参数）
+  const handleSwitchProvider = (pid) => {
+    const meta = PROVIDER_META[pid]
+    if (!meta) return
+    const cur = aiConfig || {}
+    const profiles = { ...(profilesRef.current || {}) }
+    if (cur.provider && PROVIDER_META[cur.provider]) {
+      profiles[cur.provider] = { baseUrl: cur.baseUrl, modelId: cur.modelId, apiKey: cur.apiKey }
+    }
+    const target = profiles[pid] || { baseUrl: meta.baseUrl, modelId: meta.modelId, apiKey: '' }
+    profiles[pid] = target
+    setModelProfiles(profiles)
+    dbSet(MODEL_PROFILES_KEY, profiles)
+    dispatch({ type: 'UPDATE_AI_CONFIG', payload: { provider: pid, baseUrl: target.baseUrl, modelId: target.modelId, apiKey: target.apiKey } })
+    dispatch({ type: 'PUSH_MODAL', payload: { type: 'toast', message: `✅ 已切换到 ${meta.label}${target.apiKey ? '' : '（未配置 Key，⚙️ 里填写）'}` } })
+  }
 
   // ================ 折叠态浮球可拖动（仅垂直方向，右侧贴边保持不变） ================
   const FAB_STORAGE_KEY = 'ai.fab.position.v1'
@@ -316,10 +519,7 @@ export default function AIChatSidebar({ onOpenConfig, embedded = false }) {
       <div
         className={
           embedded
-            ? (fullscreen
-                /* 全屏：fixed 铺满视口；z-[45] 盖过抽屉(z-40)，让位全局弹窗(z-50)与悬浮球(z-60) */
-                ? 'fixed inset-0 z-[45] bg-white flex'
-                : 'relative h-full w-full flex')
+            ? 'relative h-full w-full flex'
             : `fixed right-0 top-0 h-full z-40 transition-all duration-300 ease-out flex ${
                 expanded ? 'translate-x-0' : 'translate-x-full pointer-events-none'
               }`
@@ -491,6 +691,28 @@ export default function AIChatSidebar({ onOpenConfig, embedded = false }) {
           </div>
         </div>
       </div>
+
+      {/* ============ 全屏对话（Portal 挂 body：盖过顶栏/底部Tab z-30，让位弹窗 z-50 / 悬浮球 z-60） ============ */}
+      {fullscreen && embedded && createPortal(
+        <ChatFullScreen
+          messages={messages}
+          loading={loading}
+          inputValue={inputValue}
+          setInputValue={setInputValue}
+          onSend={handleSend}
+          aiConfig={aiConfig}
+          onOpenConfig={() => setConfigOpen(true)}
+          sessions={sessions}
+          currentSessionId={currentSessionId}
+          onNewChat={handleNewChat}
+          onSwitchSession={handleSwitchSession}
+          onDeleteSession={handleDeleteSession}
+          onClearAllSessions={handleClearAllSessions}
+          onSwitchProvider={handleSwitchProvider}
+          onExitFullscreen={() => setFullscreen(false)}
+        />,
+        document.body
+      )}
 
       {/* 阶段1：内置模型配置面板（embedded 左侧抽屉模式也可打开） */}
       {configOpen && (
