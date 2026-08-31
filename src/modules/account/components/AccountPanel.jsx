@@ -168,6 +168,16 @@ export default function AccountPanel({ open, onClose }) {
                 className="w-full px-3 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm text-slate-700 dark:text-slate-200 outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 dark:focus:ring-indigo-900/50"
               />
               {err && <div className="text-xs text-rose-500 px-1">⚠️ {err}</div>}
+              {mode === 'register' && (
+                <div className="text-[10px] text-amber-500 px-1 leading-relaxed">
+                  ⚠️ 密码请务必牢记：当前版本暂未开通找回功能，忘记密码将无法登录该账号（正式版接入云端后将支持验证码找回）。
+                </div>
+              )}
+              {mode === 'login' && (
+                <div className="text-[10px] text-slate-400 px-1">
+                  当前版本暂未支持密码找回，请务必牢记密码
+                </div>
+              )}
               <button
                 onClick={handleSubmit}
                 disabled={busy || !account || !password}
