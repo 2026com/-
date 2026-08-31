@@ -8,7 +8,7 @@ import { GRAPH_CATEGORIES, CATEGORY_MAP } from '../services/mockKnowledgeGraph.j
 import { buildDemoGraph, buildUserGraph, loadUserNodes, saveUserNodes, makeKnowledgeId } from '../services/userKnowledge.js'
 import { makeLabelTexture, getGlowTexture, makeDotTexture } from '../services/graphTextures.js'
 import { dbGet, dbSet } from '../../../services/db.js'
-import { useSurfaceBackground } from '../../../services/backgrounds.js'
+import { useSurfaceBackground, useSurfaceParams } from '../../../services/backgrounds.js'
 
 /**
  * 3D 知识图谱 —— 「知识宇宙」视觉版（KnowledgeGraph3D）
@@ -333,7 +333,7 @@ function GraphNode({ node, pos, color, baseScale, glowTarget, labelVisible, halo
  * 整体被 useSkyParallax 包裹:不随图谱缩放而变化,独立成层
  * （useSkyParallax 见 ../hooks/useSkyParallax.js）
  */
-function Starfield() {
+function Starfield({ density = 1, brightness = 1 }) {
   const skyRef = useSkyParallax()
   const farMat = useRef(null)
   const nearMat = useRef(null)
@@ -352,24 +352,25 @@ function Starfield() {
       geo.setAttribute('position', new THREE.Float32BufferAttribute(arr, 3))
       return geo
     }
-    // 星空密度基准（+30% 后）：远层 546 / 近层 91
-    return { farGeo: make(546, 260, 380), nearGeo: make(91, 200, 300) }
-  }, [])
+    // 星空密度基准（+30% 后）：远层 546 / 近层 91；density 为外观参数倍率
+    return { farGeo: make(Math.round(546 * density), 260, 380), nearGeo: make(Math.round(91 * density), 200, 300) }
+  }, [density])
   useEffect(() => () => { farGeo.dispose(); nearGeo.dispose() }, [farGeo, nearGeo])
 
   useFrame(({ clock }) => {
     const t = clock.elapsedTime
-    if (farMat.current) farMat.current.opacity = 0.32 + Math.sin(t * 0.35) * 0.08
-    if (nearMat.current) nearMat.current.opacity = 0.55 + Math.sin(t * 0.9 + 1.7) * 0.18
+    // brightness 为外观参数倍率（叠加在呼吸动画上）
+    if (farMat.current) farMat.current.opacity = (0.32 + Math.sin(t * 0.35) * 0.08) * brightness
+    if (nearMat.current) nearMat.current.opacity = (0.55 + Math.sin(t * 0.9 + 1.7) * 0.18) * brightness
   })
 
   return (
     <group ref={skyRef}>
       <points geometry={farGeo}>
-        <pointsMaterial ref={farMat} size={1.1} color="#a5b4fc" transparent opacity={0.32} sizeAttenuation depthWrite={false} fog={false} />
+        <pointsMaterial ref={farMat} size={1.1} color="#a5b4fc" transparent opacity={0.32 * brightness} sizeAttenuation depthWrite={false} fog={false} />
       </points>
       <points geometry={nearGeo}>
-        <pointsMaterial ref={nearMat} size={2.4} color="#e0e7ff" transparent opacity={0.55} sizeAttenuation depthWrite={false} fog={false} />
+        <pointsMaterial ref={nearMat} size={2.4} color="#e0e7ff" transparent opacity={0.55 * brightness} sizeAttenuation depthWrite={false} fog={false} />
       </points>
     </group>
   )
@@ -772,13 +773,13 @@ void main() {
 `
 
 /** HQ 白色星尘层：大量小尺寸圆形粒子，增强宇宙纵深（星空层独立，不随图谱缩放） */
-function WhiteStars() {
+function WhiteStars({ density = 1, brightness = 1 }) {
   const skyRef = useSkyParallax()
   const matRef = useRef(null)
   const dotMap = useMemo(() => makeDotTexture(), [])
   useEffect(() => () => dotMap.dispose(), [dotMap])
   const geo = useMemo(() => {
-    const COUNT = 900
+    const COUNT = Math.round(900 * density)
     const arr = new Float32Array(COUNT * 3)
     for (let i = 0; i < COUNT; i++) {
       const r = 240 + Math.random() * 160
@@ -791,15 +792,15 @@ function WhiteStars() {
     const g = new THREE.BufferGeometry()
     g.setAttribute('position', new THREE.Float32BufferAttribute(arr, 3))
     return g
-  }, [])
+  }, [density])
   useEffect(() => () => geo.dispose(), [geo])
   useFrame(({ clock }) => {
-    if (matRef.current) matRef.current.opacity = 0.42 + Math.sin(clock.elapsedTime * 0.5) * 0.12
+    if (matRef.current) matRef.current.opacity = (0.42 + Math.sin(clock.elapsedTime * 0.5) * 0.12) * brightness
   })
   return (
     <group ref={skyRef}>
       <points geometry={geo}>
-        <pointsMaterial ref={matRef} size={1.6} color="#ffffff" map={dotMap} transparent opacity={0.42} sizeAttenuation depthWrite={false} fog={false} />
+        <pointsMaterial ref={matRef} size={1.6} color="#ffffff" map={dotMap} transparent opacity={0.42 * brightness} sizeAttenuation depthWrite={false} fog={false} />
       </points>
     </group>
   )
@@ -936,7 +937,7 @@ function PerfGuard({ onLite }) {
 }
 
 /** 节点层 + 连线层 + 灯光 + 星空 + 星球外壳的完整场景 */
-function GraphScene({ graph, layout, layoutMap, nodesById, adjacency, maxDegree, selectedId, hoveredId, showLabels, liteMode, hqMode, activeCat, onTapNode, onHoverNode }) {
+function GraphScene({ graph, layout, layoutMap, nodesById, adjacency, maxDegree, selectedId, hoveredId, showLabels, liteMode, hqMode, activeCat, onTapNode, onHoverNode, params }) {
   // 「知识星球」外壳半径：由实际布局包围球推算（含噪声/松弛漂移余量）
   const shellRadius = useMemo(() => {
     let maxR = 10
@@ -957,8 +958,8 @@ function GraphScene({ graph, layout, layoutMap, nodesById, adjacency, maxDegree,
       {/* 常驻包裹图谱的「星光壳」:白色星尘壳 + 十字星芒大星,近距自动淡出 */}
       <StarShell radius={shellRadius} liteMode={liteMode} />
 
-      <Starfield />
-      {hqMode && <WhiteStars />}
+      <Starfield density={params?.starDensity ?? 1} brightness={params?.starBrightness ?? 1} />
+      {hqMode && <WhiteStars density={params?.starDensity ?? 1} brightness={params?.starBrightness ?? 1} />}
 
       {/* 内部星尘:球体内常驻的白色微尘,「星球内部也是星空」的质感 */}
       <NebulaDust radius={shellRadius} liteMode={liteMode} />
@@ -1164,6 +1165,8 @@ export default function KnowledgeGraph3D({
   const [liteMode, setLiteMode] = useState(detectLowEndDevice)
   // 背景/皮肤（纯新增）：AI 或图片换背景后即时生效；默认 null = 保留原星空渐变
   const bgStyle = useSurfaceBackground('knowledge')
+  // 外观参数（纯新增）：星空密度/亮度等，AI 调节后即时生效
+  const appearanceParams = useSurfaceParams('knowledge')
 
   // ===== 数据视图双轨：'user' = 我的知识库（真实数据，零起点）| 'demo' = 演示图谱（600 点示范，只读） =====
   // 支持 ?view=demo 直达演示；演示与用户数据完全隔离，正式包安装后默认为零渲染空状态
@@ -1375,6 +1378,7 @@ export default function KnowledgeGraph3D({
           layout={layout}
           layoutMap={layoutMap}
           nodesById={nodesById}
+          params={appearanceParams}
           adjacency={adjacency}
           maxDegree={maxDegree}
           selectedId={selectedId}

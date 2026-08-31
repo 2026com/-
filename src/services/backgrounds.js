@@ -15,10 +15,29 @@ export const SURFACES = ['knowledge', 'memory', 'notebook']
 export const SURFACE_NAMES = { knowledge: '3D 知识库', memory: '记忆库', notebook: '横线本' }
 export const BG_EVENT = 'app:backgrounds-changed'
 
+// ===== 可调参数白名单（AI set_params 指令与本地面板共用；[min, max, 默认]） =====
+export const PARAM_DEFS = {
+  knowledge: {
+    starDensity:    { label: '星空密度', min: 0.3, max: 3, def: 1 },
+    starBrightness: { label: '星光亮度', min: 0.3, max: 3, def: 1 },
+  },
+  memory: {
+    rotateSpeed:    { label: '旋转速度', min: 0.2, max: 5, def: 1 },  // 1 = 每 100 秒转一圈
+  },
+  notebook: {},
+}
+
 function loadAll() {
   try {
     const v = storage.get(STORAGE_KEYS.BACKGROUNDS, {})
-    return (v && typeof v === 'object') ? v : {}
+    if (!v || typeof v !== 'object') return {}
+    // 兼容 v1 形状（值直接是背景对象 {type:...}）→ 统一为 v2 { bg, params }
+    const out = {}
+    Object.entries(v).forEach(([k, val]) => {
+      if (val && val.type) out[k] = { bg: val, params: {} }
+      else if (val && typeof val === 'object') out[k] = { bg: val.bg || null, params: val.params || {} }
+    })
+    return out
   } catch (e) { return {} }
 }
 
@@ -26,24 +45,61 @@ function saveAll(all) {
   try { storage.set(STORAGE_KEYS.BACKGROUNDS, all) } catch (e) { /* 写失败不阻塞，下次重试 */ }
 }
 
+/** 读取某页面的外观设置 { bg: 背景值|null, params: 参数对象 } */
+export function getSurfaceSettings(surface) {
+  if (!SURFACES.includes(surface)) return { bg: null, params: {} }
+  const s = loadAll()[surface] || {}
+  return { bg: s.bg || null, params: s.params || {} }
+}
+
+/** 读取某页面参数（逐项校验范围，非法回落默认） */
+export function getParams(surface) {
+  const defs = PARAM_DEFS[surface] || {}
+  const raw = getSurfaceSettings(surface).params || {}
+  const out = {}
+  Object.entries(defs).forEach(([k, d]) => {
+    const n = Number(raw[k])
+    out[k] = Number.isFinite(n) ? Math.min(d.max, Math.max(d.min, n)) : d.def
+  })
+  return out
+}
+
+/** 合并写入参数（仅白名单内的键生效，越界自动夹取） */
+export function setParams(surface, params) {
+  if (!SURFACES.includes(surface)) return false
+  const defs = PARAM_DEFS[surface] || {}
+  const all = loadAll()
+  const cur = all[surface] || { bg: null, params: {} }
+  const nextParams = { ...(cur.params || {}) }
+  Object.entries(params || {}).forEach(([k, v]) => {
+    if (!defs[k]) return // 白名单外的参数直接丢弃
+    const n = Number(v)
+    if (Number.isFinite(n)) nextParams[k] = Math.min(defs[k].max, Math.max(defs[k].min, n))
+  })
+  all[surface] = { bg: cur.bg || null, params: nextParams }
+  saveAll(all)
+  try { window.dispatchEvent(new CustomEvent(BG_EVENT, { detail: { surface } })) } catch (e) { /* ignore */ }
+  return true
+}
+
 /** 读取某页面背景（未设置/非法值返回 null = 使用各页面默认外观） */
 export function getBackground(surface) {
   if (!SURFACES.includes(surface)) return null
-  const bg = loadAll()[surface]
-  return (bg && bg.type) ? bg : null
+  return getSurfaceSettings(surface).bg
 }
 
 /** 设置某页面背景（图片请先经 compressImageForBackground 压缩） */
 export function setBackground(surface, bg) {
   if (!SURFACES.includes(surface) || !bg || !bg.type) return false
   const all = loadAll()
-  all[surface] = bg
+  const cur = all[surface] || { bg: null, params: {} }
+  all[surface] = { bg, params: cur.params || {} }
   saveAll(all)
   try { window.dispatchEvent(new CustomEvent(BG_EVENT, { detail: { surface } })) } catch (e) { /* ignore */ }
   return true
 }
 
-/** 恢复某页面默认外观；surface='all' 时全部还原 */
+/** 恢复某页面默认外观（背景 + 参数一并还原）；surface='all' 时全部还原 */
 export function resetBackground(surface) {
   const all = loadAll()
   const targets = surface === 'all' ? SURFACES : [surface]
@@ -83,6 +139,16 @@ export function useSurfaceBackground(surface) {
     return onBackgroundsChanged(() => setCss(getBackgroundCss(surface)))
   }, [surface])
   return css
+}
+
+/** React hook：某页面当前参数（已按白名单+默认值归一；调整后即时生效） */
+export function useSurfaceParams(surface) {
+  const [params, setP] = useState(() => getParams(surface))
+  useEffect(() => {
+    setP(getParams(surface))
+    return onBackgroundsChanged(() => setP(getParams(surface)))
+  }, [surface])
+  return params
 }
 
 /** 图片文件 → 压缩后的背景 dataURL（最长边 1600，JPEG 0.8；竖图横图均按比例） */

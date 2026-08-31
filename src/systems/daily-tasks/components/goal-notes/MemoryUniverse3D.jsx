@@ -5,7 +5,7 @@ import * as THREE from 'three'
 import { makeDotTexture } from '../../../knowledge-base/services/graphTextures.js'
 import { useAppTheme } from '../../../../services/theme.js'
 import { dbGet, dbSet } from '../../../../services/db.js'
-import { useSurfaceBackground } from '../../../../services/backgrounds.js'
+import { useSurfaceBackground, useSurfaceParams } from '../../../../services/backgrounds.js'
 import LibraryDrawer from './memory-libs/LibraryDrawer.jsx'
 import { loadLibs, saveLibs, libToPages, DEFAULT_LIB_ID } from './memory-libs/memoryLibs.js'
 
@@ -588,13 +588,13 @@ function Meteor({ dark }) {
 }
 
 /** 天空组：聚焦时只有被点中的那张飘近放大，其余照常旋转 */
-function SkyDome({ children, faceAngles, skyRef, dragRef, targetScaleRef, pulseRef, ripples, dark }) {
+function SkyDome({ children, faceAngles, skyRef, dragRef, targetScaleRef, pulseRef, ripples, dark, speed = 1 }) {
   const innerRef = useRef(null)
   useFrame((_, dt) => {
     const g = innerRef.current
     if (!g) return
-    // 100 秒转一圈；拖动时暂停
-    if (!dragRef.current.on) g.rotation.y += dt * (Math.PI * 2 / 100)
+    // 100 秒转一圈（speed 为外观参数倍率，AI 可调）；拖动时暂停
+    if (!dragRef.current.on) g.rotation.y += dt * (Math.PI * 2 / 100) * speed
     pulseRef.current = Math.max(0, pulseRef.current - dt * 1.8)
     const s = (g.scale.x + (targetScaleRef.current - g.scale.x) * Math.min(1, dt * 3)) * (1 + 0.05 * pulseRef.current)
     g.scale.setScalar(s)
@@ -618,6 +618,8 @@ export default function MemoryUniverse3D({ pages = [], startIndex = null, onBack
   const dark = theme === 'dark'
   // 背景/皮肤（纯新增）：AI 或图片换背景后即时生效；默认 null = 保留原主题星空
   const bgStyle = useSurfaceBackground('memory')
+  // 外观参数（纯新增）：旋转速度等，AI 调节后即时生效
+  const memoryParams = useSurfaceParams('memory')
   const skyRef = useRef(null)
   const targetScaleRef = useRef(1)
   const dragRef = useRef({ on: false, x: 0, y: 0, moved: false })
@@ -978,7 +980,7 @@ const levelY = (rand, i) => Math.max(-0.3, Math.min(0.58, HEIGHT_LEVELS[i % HEIG
         <ambientLight intensity={0.5} />
         <PerfGuard onLite={() => { setLiteMode(true); pushNotice('已自动切换流畅模式以保持顺滑') }} />
         <Meteor dark={dark} />
-        <SkyDome faceAngles={faceAngles} skyRef={skyRef} dragRef={dragRef} targetScaleRef={targetScaleRef} pulseRef={pulseRef} ripples={ripples} dark={dark}>
+        <SkyDome faceAngles={faceAngles} skyRef={skyRef} dragRef={dragRef} targetScaleRef={targetScaleRef} pulseRef={pulseRef} ripples={ripples} dark={dark} speed={memoryParams.rotateSpeed}>
           <Dust dark={dark} lite={liteMode} />
           {showPapers
             ? (<>
