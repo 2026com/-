@@ -100,6 +100,8 @@ export const STORAGE_KEYS = {
   DATA_VERSION: 'growth_app_v1_data_version',
   /** 3D 知识库：用户知识点元数据 [{ id, name, category, createdAt }]（生长结果由 knowledge-base 服务独立缓存） */
   KNOWLEDGE_BASE: 'growth_app_v1_knowledge_nodes',
+  /** 背景/皮肤设置（3D知识库 / 记忆库 / 横线本）：{ knowledge, memory, notebook }（AI 换背景 + 账号云同步纳入） */
+  BACKGROUNDS: 'growth_app_v1_backgrounds',
 }
 
 // 默认设置
