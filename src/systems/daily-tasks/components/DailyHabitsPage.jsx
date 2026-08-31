@@ -302,6 +302,7 @@ function ReminderSetupBanner() {
     try { return localStorage.getItem('reminderSetupDoneV2') === '1' } catch (e) { return false }
   })
   const [st, setSt] = useState(null)
+  const [testing, setTesting] = useState(false)
 
   useEffect(() => {
     let alive = true
@@ -324,7 +325,6 @@ function ReminderSetupBanner() {
   }
   const jumpBtn = 'ml-1.5 px-1.5 py-0.5 rounded bg-amber-100 hover:bg-amber-200 text-amber-900 font-semibold touch-feedback shrink-0'
   const mark = (ok) => (st ? (ok ? '✅' : '❌') : '·')
-  const [testing, setTesting] = useState(false)
   const testBanner = async () => {
     setTesting(true)
     try { await notifyNativeNow('🔔 测试横幅', '看到这条从顶部弹出 = App 外提醒通道畅通 ✅') } catch (e) { /* ignore */ }

@@ -15,6 +15,20 @@ const SIBLING_Y_STEP = 76
 const PIANO_ROOT_Y = 280
 const TREE_GAP = 120
 
+/**
+ * 递归测量子树像素高度（钢琴键式根堆叠用）：叶子按一个层级高度计，
+ * 内节点 = max(一个层级, Σ 子树高 + 级间距)。
+ */
+function calcTreeHeight(node, nodes, childrenMap) {
+  const kids = (childrenMap[node.id] || [])
+    .map(k => nodes.find(n => n.id === k.id))
+    .filter(Boolean)
+  if (!kids.length) return LEVEL_Y_STEP
+  let sum = 0
+  kids.forEach(k => { sum += calcTreeHeight(k, nodes, childrenMap) + TREE_GAP * 0.5 })
+  return Math.max(LEVEL_Y_STEP, sum)
+}
+
 /** 虚拟 dayIdx ←→ Date 互转（dayIdx=0 就是今天零点） */
 function toDayIdx(d) {
   if (!d) return 0

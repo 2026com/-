@@ -611,9 +611,8 @@ function parseRouteJSON(data, fallbackGen) {
   const normStep = (raw, j) => {
     const o = raw && typeof raw === 'object' ? raw : {}
     const name = String(o.name || o.stepName || o.title || '')
-    let points = 0
-    if (typeof o.points === 'number') points = o.points
-    else { const m = String(o.points || o.count || o.knowledgeCount || '').match(/\d+/); points = m ? Number(m[0]) : 0 }
+    const ptMatch = typeof o.points === 'number' ? null : String(o.points || o.count || o.knowledgeCount || '').match(/\d+/)
+    const points = typeof o.points === 'number' ? o.points : (ptMatch ? Number(ptMatch[0]) : 0)
     const items = Array.isArray(o.items) ? o.items.map(x => String(x))
       : (Array.isArray(o.knowledgePoints) ? o.knowledgePoints.map(x => String(x)) : [])
     return {

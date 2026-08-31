@@ -69,7 +69,7 @@ export async function chatCompletion(config, messages, options = {}) {
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), Math.max(3000, timeoutMs));
 
-  let raw = null;
+  let raw;
   try {
     const resp = await fetch(url, {
       method: 'POST',
@@ -100,7 +100,7 @@ export async function chatCompletion(config, messages, options = {}) {
   } catch (e) {
     clearTimeout(timer);
     if (e && e.name === 'AbortError') {
-      throw new Error(`请求超时（${Math.round(timeoutMs / 1000)}秒），请检查网络或稍后重试`);
+      throw new Error(`请求超时（${Math.round(timeoutMs / 1000)}秒），请检查网络或稍后重试`, { cause: e });
     }
     throw e;
   }

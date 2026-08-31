@@ -24,6 +24,19 @@ export default function NodePopup({ nodeId, onClose, getPosition }) {
   const [titleEditCache, setTitleEditCache] = useState({})   // 行内标题 input 受控缓存（onBlur 统一写回）
   const [aiGenerating, setAiGenerating] = useState(false)    // E4：AI 真实生成 loading
 
+  // childrenMap 必须在提前 return 之前构建（Hook 调用顺序在每次渲染间保持一致）
+  const childrenMap = useMemo(() => {
+    const m = {}
+    state.nodes.forEach(n => {
+      if (!n.parentId) return
+      if (!m[n.parentId]) m[n.parentId] = []
+      m[n.parentId].push(n)
+    })
+    // 每个父节点下面的 children 按 createdAt 排（保证顺序稳定）
+    Object.keys(m).forEach(k => m[k].sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0)))
+    return m
+  }, [state.nodes])
+
   const pos = getPosition()
   const node = state.nodes.find(n => n.id === nodeId)
   if (!node) return null
@@ -411,19 +424,7 @@ export default function NodePopup({ nodeId, onClose, getPosition }) {
   )
 
   // === 方案标签：树状递归渲染子节点（直接/后代全部渲染，按 parentId 层级） ===
-  // 先构造一个 childrenMap 方便递归渲染
-  const childrenMap = useMemo(() => {
-    const m = {}
-    state.nodes.forEach(n => {
-      if (!n.parentId) return
-      if (!m[n.parentId]) m[n.parentId] = []
-      m[n.parentId].push(n)
-    })
-    // 每个父节点下面的 children 按 createdAt 排（保证顺序稳定）
-    Object.keys(m).forEach(k => m[k].sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0)))
-    return m
-  }, [state.nodes])
-
+  // childrenMap 已在组件顶部（提前 return 之前）构建，保证 Hook 顺序稳定
   function recurseChildren(parentId, depth) {
     const list = childrenMap[parentId] || []
     return list.map(child => renderTreeNodeRow(child, depth, list)).concat(
@@ -662,7 +663,7 @@ export default function NodePopup({ nodeId, onClose, getPosition }) {
                       className="w-4 h-4 accent-indigo-500 rounded"
                       aria-label="开启闹钟提醒"
                     />
-                    {!!node.reminder?.enabled ? <span className="text-emerald-600 font-bold">已开启</span> : <span>点击开启</span>}
+                    {node.reminder?.enabled ? <span className="text-emerald-600 font-bold">已开启</span> : <span>点击开启</span>}
                   </label>
                 </div>
                 {!!node.reminder?.enabled && (

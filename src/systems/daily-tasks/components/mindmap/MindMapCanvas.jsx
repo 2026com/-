@@ -5,7 +5,7 @@ import MindNode from './MindNode.jsx'
 import NodeLinks from './NodeLinks.jsx'
 import NodePopup from './NodePopup.jsx'
 import StageDividers from './StageDividers.jsx'
-import { useMindMapLayout, fromDayIdx, BASE_PX_PER_DAY, ZOOM_MIN, ZOOM_MAX } from '../../../../hooks/useMindMapLayout.js'
+import { useMindMapLayout, fromDayIdx, BASE_PX_PER_DAY, ZOOM_MIN, ZOOM_MAX, X_MARGIN } from '../../../../hooks/useMindMapLayout.js'
 import { useNodeInteraction, getPointer } from '../../../../hooks/useNodeInteraction.js'
 import CanvasRenderer from './CanvasRenderer.jsx'
 import EdgeRenderer from './EdgeRenderer.jsx'
@@ -176,7 +176,7 @@ export default function MindMapCanvas({ zoom = 1, onCreateRootNode, timeFilter =
     const fp = state.ui?.focusPlan
     if (!fp || !fp.at) return
     suppressRecenterRef.current = true
-    setWindowStart(Math.max(minWindowStartRef.current, (Number(fp.minDay) ?? 0) - 1))
+    setWindowStart(Math.max(minWindowStartRef.current, (fp.minDay != null ? Number(fp.minDay) : 0) - 1))
     setOffsetY(20)
   }, [state.ui?.focusPlan])
 
