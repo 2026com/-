@@ -27,6 +27,62 @@ const INK = ['#4a4038', '#63513d', '#3c3c3c', '#7a5c3d']           // 浅色主�
 const WEEKDAYS = ['星期日', '星期一', '星期二', '星期三', '星期四', '星期五', '星期六']
 const FONT = '"Kaiti SC", "STKaiti", KaiTi, "Noto Serif SC", "SimSun", serif'
 
+// ===== 演示模式：生成约 50 张不同的纸张（只读示范；不读不写任何真实数据） =====
+function demoPhoto(w, h, label, c1, c2, seed) {
+  const canvas = document.createElement('canvas')
+  canvas.width = w; canvas.height = h
+  const ctx = canvas.getContext('2d')
+  const g = ctx.createLinearGradient(0, 0, w, h)
+  g.addColorStop(0, c1); g.addColorStop(1, c2)
+  ctx.fillStyle = g; ctx.fillRect(0, 0, w, h)
+  ctx.fillStyle = 'rgba(255,255,255,0.9)'
+  ctx.font = `bold ${Math.round(Math.min(w, h) / 7)}px sans-serif`
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle'
+  ctx.fillText(label, w / 2, h / 2)
+  return { id: 'demoph' + seed + w, dataUrl: canvas.toDataURL('image/jpeg', 0.85) }
+}
+
+const DEMO_TEXTS = [
+  '把今天的待办一件件划掉，剩下的时间完全属于自己。原来从容是攒出来的。',
+  '傍晚散步时看到一整片火烧云，站在路边看了十分钟，什么都没想。',
+  '读到一句话：焦虑的反面是具体。把事情拆小，心就静了。',
+  '坚持第 21 天，早起已经不那么难了。习惯是身体先于意志记住的。',
+  '和朋友打了很久的电话，有些情绪说出来就轻了一半。',
+  '尝试了新的路线回家，陌生街角有家很香的面馆。',
+  '今天效率不高，但允许自己慢一天，明天再出发。',
+  '给窗台的绿萝浇了水，顺手擦了叶子。照顾点什么，心情会变好。',
+  '晚上跑了三公里，最后一公里靠意志。跑完的畅快是真的。',
+  '把三年前的照片翻出来看，那时候的烦恼现在都变成了故事。',
+  '学会了做一道新菜，卖相一般但味道在线。',
+  '下午的阳光正好落在书页上，读到忘了时间。',
+  '把房间收拾了一遍，干净的空间真的会让脑子也清爽。',
+  '睡前放下手机，看了几页纸质书，入睡比平时快了很多。',
+  '记下一个小灵感：把每周的复盘画成一张导图，下次试试。',
+  '今天什么特别的都没发生，但平静的一天就很难得。',
+]
+
+/** 构建约 50 张演示页：近 50 天每天一页，约八成有文字、约四成带示例照片（确定性生成，稳定不闪变） */
+function buildDemoMemoryPages() {
+  const pages = []
+  const today = new Date()
+  for (let i = 49; i >= 0; i--) {
+    const d = new Date(today); d.setDate(d.getDate() - i)
+    const date = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+    const k = (i * 7) % 10
+    const photos = []
+    if (k === 6) photos.push(demoPhoto(300, 470, '竖拍示例', '#6366f1', '#a855f7', i))
+    if (k === 8) photos.push(demoPhoto(470, 300, '横拍示例', '#0ea5e9', '#22d3ee', i))
+    if (k === 9) {
+      photos.push(demoPhoto(300, 470, '竖拍示例', '#f59e0b', '#ef4444', i))
+      photos.push(demoPhoto(470, 300, '横拍示例', '#10b981', '#0ea5e9', i + 500))
+    }
+    const text = k === 0 ? '' : DEMO_TEXTS[i % DEMO_TEXTS.length]
+    if (!text && photos.length === 0) continue  // 少数空白日跳过，保持内容密度
+    pages.push({ id: 'demopg' + i, date, text, photos })
+  }
+  return pages
+}
+
 const headerOf = (ds) => {
   const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(ds || '')
   if (!m) return '新的一页'
@@ -676,10 +732,14 @@ export default function MemoryUniverse3D({ pages = [], startIndex = null, onBack
   const [drawerOpen, setDrawerOpen] = useState(false)
   const activeLib = libs.find(l => l.id === libId) || null
   const activeLibName = libId === DEFAULT_LIB_ID ? '横线本' : (activeLib ? activeLib.name : '横线本')
+  // ===== 数据视图双轨（对齐知识库）：'user' = 我的记忆 | 'demo' = 演示记忆（约 50 张示范，只读） =====
+  const [viewMode, setViewMode] = useState('user')
+  const demoPages = useMemo(() => (viewMode === 'demo' ? buildDemoMemoryPages() : null), [viewMode])
   const activePages = useMemo(() => {
+    if (viewMode === 'demo') return demoPages || []
     if (libId === DEFAULT_LIB_ID) return pages
     return libToPages(activeLib)
-  }, [libId, activeLib, pages])
+  }, [viewMode, demoPages, libId, activeLib, pages])
 
   const commitImport = useCallback(({ targetId, newName, entries }) => {
     const libsNow = loadLibs()
@@ -993,21 +1053,49 @@ const levelY = (rand, i) => Math.max(-0.3, Math.min(0.58, HEIGHT_LEVELS[i % HEIG
         </SkyDome>
       </Canvas>
 
-      {/* 顶栏：左侧标题 / 右上角按钮组（纸张开关 + 文字方向 + 返回） */}
+      {/* 空态引导：没有真实记忆时提示写第一笔 / 观看演示 */}
+      {memories.length === 0 && viewMode === 'user' && (
+        <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none px-6 text-center">
+          <div className="text-4xl mb-2">🌌</div>
+          <div className={`text-sm ${uiSub}`}>还没有记忆纸页 · 回到横线本写下第一笔</div>
+          <div className={`text-xs mt-1 ${uiSub}`}>或点右上角「🎬 观看演示记忆」预览成品形态</div>
+        </div>
+      )}
+
+      {/* 顶栏：左侧标题 / 右上角按钮组（演示 + 库切换 + 纸张开关 + 文字方向 + 返回） */}
       <div className="absolute top-0 inset-x-0 p-3 flex items-start justify-between gap-2 pointer-events-none">
         <div className={`backdrop-blur rounded-xl px-3 py-2 pointer-events-auto border ${uiCard}`}>
-          <div className={`text-sm font-bold ${uiText}`}>🌌 记忆宇宙</div>
+          <div className={`text-sm font-bold ${uiText}`}>🌌 记忆宇宙
+            {viewMode === 'demo' && (
+              <span className="ml-1.5 text-[9px] px-1.5 py-0.5 rounded-full bg-amber-500/20 text-amber-300 border border-amber-400/30 align-middle">演示数据 · 成品形态示范</span>
+            )}
+          </div>
           <div className={`text-[10px] mt-0.5 ${uiSub}`}>
             {memories.length} 段记忆环绕着你 · 拖动环视 · 滚轮/双指缩放 · 点击回看
             {liteMode ? ' · 🍃流畅' : ' · ✨高清'}
           </div>
         </div>
         <div className={`flex flex-col gap-1.5 items-end pointer-events-auto ${pureMode ? 'hidden' : ''}`}>
-          <button
-            onClick={() => setDrawerOpen(true)}
-            className={`px-3 py-1.5 rounded-lg text-[11px] font-medium backdrop-blur border transition-colors ${uiBtnOn}`}
-            title={`当前记忆库：${activeLibName}（点击切换/批量导入）`}
-          >📚 {activeLibName}</button>
+          {viewMode === 'user' ? (
+            <button
+              onClick={() => { setViewMode('demo'); setSelectedId(null) }}
+              className={`px-3 py-1.5 rounded-lg text-[11px] font-medium backdrop-blur border transition-colors ${uiBtn}`}
+              title="渲染约 50 张示范纸张（只读），预览成品形态；不影响你的真实记忆"
+            >🎬 观看演示记忆</button>
+          ) : (
+            <button
+              onClick={() => { setViewMode('user'); setSelectedId(null) }}
+              className={`px-3 py-1.5 rounded-lg text-[11px] font-semibold backdrop-blur border transition-colors ${uiBtnOn}`}
+              title="退出演示，回到我的记忆"
+            >↩ 退出演示</button>
+          )}
+          {viewMode === 'user' && (
+            <button
+              onClick={() => setDrawerOpen(true)}
+              className={`px-3 py-1.5 rounded-lg text-[11px] font-medium backdrop-blur border transition-colors ${uiBtnOn}`}
+              title={`当前记忆库：${activeLibName}（点击切换/批量导入）`}
+            >📚 {activeLibName}</button>
+          )}
           <button
             onClick={() => setShowPapers(v => !v)}
             className={`px-3 py-1.5 rounded-lg text-[11px] font-medium backdrop-blur border transition-colors ${showPapers ? uiBtnOn : uiBtn}`}
