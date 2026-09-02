@@ -11,7 +11,7 @@
     "start": "node start-vite.mjs",
     "serve": "node start-vite.mjs",
     "lint": "eslint src",
-    "audit:parallel": "node scripts/check-undef.mjs && node scripts/check-overwrites.mjs && node scripts/check-conflicts.mjs && node scripts/check-circular.mjs && npx eslint src --quiet"
+    "audit:parallel": "node scripts/check-undef.mjs && node scripts/check-tdz.mjs && node scripts/check-overwrites.mjs && node scripts/check-conflicts.mjs && node scripts/check-circular.mjs && npx eslint src --quiet"
   },
   "dependencies": {
     "@capacitor/android": "^8.5.0",
@@ -36,6 +36,8 @@
   "devDependencies": {
     "@eslint/js": "^10.0.1",
     "@vitejs/plugin-react": "^4.2.1",
+    "acorn": "^8.18.0",
+    "acorn-jsx": "^5.3.2",
     "autoprefixer": "^10.4.16",
     "eslint": "^10.9.1",
     "eslint-plugin-react-hooks": "^7.1.1",
