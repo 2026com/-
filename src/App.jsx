@@ -200,7 +200,11 @@ export default function App() {
 
       {/* AI 助手为独立模块，入口挂在全局左侧抽屉（LeftDrawer → modules/ai-assistant/ChatInterface） */}
       {/* 心理情绪板块自带页内三条 Tab（情绪/社区/聊天），该路由下隐藏全局底栏避免双底栏 */}
-      {!pureMode && !location.pathname.startsWith('/mind-community') && <BottomTabs />}
+      {/* 底部三 Tab 只属于日常待办系统（日常习惯/长期规划/历史复盘）；滑到其他系统或 AI 对话抽屉打开（防键盘顶起）时隐藏 */}
+      {!pureMode
+        && ['/daily', '/goals', '/review'].some(p => location.pathname.startsWith(p))
+        && !(state.settings.drawerOpen && state.settings.drawerMode === 'ai')
+        && <BottomTabs />}
       <ModalRoot />
       {/* 到点提醒的顶部横幅（应用内，微信式；App 外由系统通知横幅负责） */}
       <TopReminderBanner />

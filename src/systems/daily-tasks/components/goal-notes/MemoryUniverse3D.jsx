@@ -1099,9 +1099,9 @@ const levelY = (rand, i) => Math.max(-0.3, Math.min(0.58, HEIGHT_LEVELS[i % HEIG
         </div>
       )}
 
-      {/* 顶栏：左侧标题 / 右上角按钮组（演示 + 库切换 + 纸张开关 + 文字方向 + 返回） */}
+      {/* 顶栏：左侧标题 / 右上角按钮组（演示 + 库切换 + 纸张开关 + 文字方向 + 返回）；纯净模式下左上标题卡一并隐藏 */}
       <div className="absolute top-0 inset-x-0 p-3 flex items-start justify-between gap-2 pointer-events-none">
-        <div className={`backdrop-blur rounded-xl px-3 py-2 pointer-events-auto border ${uiCard}`}>
+        <div className={`backdrop-blur rounded-xl px-3 py-2 pointer-events-auto border ${uiCard} ${pureMode ? 'hidden' : ''}`}>
           <div className={`text-sm font-bold ${uiText}`}>🌌 记忆宇宙
             {viewMode === 'demo' && (
               <span className="ml-1.5 text-[9px] px-1.5 py-0.5 rounded-full bg-amber-500/20 text-amber-300 border border-amber-400/30 align-middle">演示数据 · 成品形态示范</span>

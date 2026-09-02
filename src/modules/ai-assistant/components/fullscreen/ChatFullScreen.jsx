@@ -69,7 +69,14 @@ export default function ChatFullScreen({
   }
 
   return (
-    <div className="fixed inset-0 z-[48] bg-white dark:bg-slate-900 flex flex-col">
+    <div
+      className="fixed inset-0 z-[48] bg-white dark:bg-slate-900 flex flex-col"
+      /* 安全区（纯新增）：APK 沉浸式下整块 UI 自动避开系统状态栏与手势条；网页端变量为 0 无变化 */
+      style={{
+        paddingTop: 'var(--safe-top-js, var(--safe-top, 0px))',
+        paddingBottom: 'var(--safe-bottom, 0px)',
+      }}
+    >
       {/* ===== 顶部栏：左 ☰ 会话抽屉 · 右 ⚙️ / ⛶ / ⊕ ===== */}
       <div className="h-12 min-h-[48px] shrink-0 flex items-center justify-between px-2 border-b border-slate-100 dark:border-slate-800">
         <button

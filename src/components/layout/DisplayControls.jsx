@@ -42,18 +42,23 @@ export default function DisplayControls({ pureMode = false, onTogglePure }) {
         aria-label={pureMode ? '退出纯净模式' : '纯净模式'}
         className={`${btn} ${pureMode ? 'bg-indigo-500 border-indigo-300/40 text-white' : 'bg-slate-900/70 border-white/10 text-white hover:bg-slate-900/90'}`}
       >⛶</button>
-      <button
-        onClick={handleOrientation}
-        title={landscape ? '切换为竖屏' : '切换为横屏'}
-        aria-label={landscape ? '切换为竖屏' : '切换为横屏'}
-        className={`${btn} bg-slate-900/70 border-white/10 text-white hover:bg-slate-900/90`}
-      >{landscape ? '📱' : '🖥️'}</button>
-      <button
-        onClick={() => toggleTheme()}
-        title={theme === 'dark' ? '切换为浅色模式' : '切换为深色模式'}
-        aria-label={theme === 'dark' ? '切换为浅色模式' : '切换为深色模式'}
-        className={`${btn} bg-slate-900/70 border-white/10 text-white hover:bg-slate-900/90`}
-      >{theme === 'dark' ? '☀️' : '🌙'}</button>
+      {/* 纯净模式下只保留 ⛶ 退出入口（横竖屏/日夜切换全部隐藏；退出即恢复） */}
+      {!pureMode && (
+        <button
+          onClick={handleOrientation}
+          title={landscape ? '切换为竖屏' : '切换为横屏'}
+          aria-label={landscape ? '切换为竖屏' : '切换为横屏'}
+          className={`${btn} bg-slate-900/70 border-white/10 text-white hover:bg-slate-900/90`}
+        >{landscape ? '📱' : '🖥️'}</button>
+      )}
+      {!pureMode && (
+        <button
+          onClick={() => toggleTheme()}
+          title={theme === 'dark' ? '切换为浅色模式' : '切换为深色模式'}
+          aria-label={theme === 'dark' ? '切换为浅色模式' : '切换为深色模式'}
+          className={`${btn} bg-slate-900/70 border-white/10 text-white hover:bg-slate-900/90`}
+        >{theme === 'dark' ? '☀️' : '🌙'}</button>
+      )}
     </div>
   )
 }
