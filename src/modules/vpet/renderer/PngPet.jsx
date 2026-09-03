@@ -116,7 +116,10 @@ export function PngPet({
     }
   }
 
-  // ===== 气泡 =====
+  // 气泡翻转：桌宠位于屏幕顶部区域（top < 170px）时气泡放到下方，避免出屏/遮挡
+  const bubbleBelow = interactive && pos != null && pos.y < 170
+
+  // 气泡 =====
   const [bubble, setBubble] = useState(null) // { text, ts }
   const bubbleTimer = useRef(null)
   const showBubble = (text, autoHideMs = 8000) => {
@@ -202,16 +205,20 @@ export function PngPet({
       onPointerCancel={interactive ? onPointerUp : undefined}
       title={interactive ? '拖动换位置 · 双击说话' : undefined}
     >
-      {/* 语音气泡（桌宠上方；自动消失，点一下关闭） */}
+      {/* 语音气泡：默认在桌宠上方；桌宠被拖到屏幕顶部区域时自动翻转到下方（防遮挡/出屏） */}
       {bubble && (
         <div
           onClick={() => setBubble(null)}
-          style={{ position: 'absolute', bottom: '102%', left: '50%', transform: 'translateX(-30%)', maxWidth: 260, width: 'max-content', pointerEvents: 'auto' }}
+          style={{ position: 'absolute', maxWidth: 260, width: 'max-content', pointerEvents: 'auto',
+            ...(bubbleBelow ? { top: '102%' } : { bottom: '102%' }),
+            left: '50%', transform: 'translateX(-30%)' }}
           className="bg-white dark:bg-slate-800 border border-indigo-200 dark:border-slate-600 shadow-xl rounded-2xl px-3.5 py-2.5 text-[13px] leading-relaxed text-slate-700 dark:text-slate-200"
         >
           {listening && <span className="inline-block w-2 h-2 rounded-full bg-rose-500 animate-pulse mr-1.5 align-middle" />}
           <span className="whitespace-pre-wrap break-words">{bubble.text}</span>
-          <span className="absolute -bottom-1.5 left-8 w-3 h-3 bg-white dark:bg-slate-800 border-b border-r border-indigo-200 dark:border-slate-600 rotate-45" />
+          <span className={`absolute left-8 w-3 h-3 bg-white dark:bg-slate-800 rotate-45 ${bubbleBelow
+            ? '-top-1.5 border-t border-l border-indigo-200 dark:border-slate-600'
+            : '-bottom-1.5 border-b border-r border-indigo-200 dark:border-slate-600'}`} />
         </div>
       )}
       <img
