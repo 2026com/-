@@ -56,3 +56,24 @@
 2. 写 `executors/soullinkFaceAdapter.js` 与 `executors/ag99BodyAdapter.js`（render 契约不变）；
 3. Live2D Web 渲染层（Cubism 4 runtime）+ 每帧驱动循环；
 4. 大脑接入：表演人设 system prompt + 表演指令与 appActions 任务联动（AI 干活 → work 指令 → completeWork）。
+
+## 路径B · PNG 纸片人渲染器（当前形态）
+
+- 立绘预处理：`node scripts/prepare-pet-png.cjs <输入图> public/pet/base.png`
+  （自动抠豆包棋盘格底→孤岛清理→去斑点→裁剪→缩到 512px 透明底）；
+- `renderer/PngPet.jsx`：Director 参数 → 整图变换（头身角度=旋转位移、呼吸=缩放）+ 整图变体交换（眨眼/张嘴）；
+- 挂载：App.jsx，3D 知识库页与纯净模式自动隐藏；调试入口 `window.__petDirector`。
+
+## 豆包 AI 变体生成指引（严格一致性要求）
+
+在豆包中使用**参考图编辑/图生图**模式，上传 `public/pet/base.png` 原图，提示词模板：
+
+> 严格编辑这张图片：只改变【XX部位】为【目标状态】，角色的姿势、发型、服装、表情其余部分、
+> 头身比例、构图位置、背景（棋盘格）全部与原图完全一致，一个像素都不许移动，
+> 不许添加任何新元素、不许改变画风和线条，输出与原图同尺寸。
+
+需要的变体（生成后放 `public/pet/`，文件名对应即可生效）：
+1. `blink.png`——只闭眼（双眼闭合，其余不变）
+2. `mouthOpen.png`——只张嘴（嘴巴张开约半厘米的幅度，其余不变）
+
+⚠️ 一致性是 AI 生图的难点：每次生成后对比检查，任何多余变化（发丝位移、颜色偏差）都不可用，重生成。

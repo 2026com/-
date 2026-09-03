@@ -4,6 +4,7 @@ import BottomTabs from './components/layout/BottomTabs.jsx'
 import LeftDrawer from './components/layout/LeftDrawer.jsx'
 import TopStatusBar from './components/layout/TopStatusBar.jsx'
 import DisplayControls from './components/layout/DisplayControls.jsx'
+import { PngPet } from './modules/vpet/index.js'
 import CalendarDrawer from './components/layout/CalendarDrawer.jsx'
 import DashboardPanel from './components/dashboard/DashboardPanel.jsx'
 import ModalRoot from './components/common/ModalRoot.jsx'
@@ -218,6 +219,16 @@ export default function App() {
           try { window.dispatchEvent(new CustomEvent('app:pure-mode', { detail: { on: next } })) } catch { /* ignore */ }
           return next
         })} />
+      )}
+
+      {/* 虚拟桌宠（路径B PNG纸片人 MVP）：Director 驱动的立绘形象；3D 知识库页与纯净模式隐藏（避性能冲突） */}
+      {!pureMode && !location.pathname.startsWith('/knowledge-base') && (
+        <PngPet
+          images={{ base: '/pet/base.png' }}
+          size={104}
+          debugExpose
+          style={{ position: 'fixed', left: 10, bottom: 'calc(var(--bottombar-total, 64px) + 10px)', zIndex: 25 }}
+        />
       )}
     </div>
   )
