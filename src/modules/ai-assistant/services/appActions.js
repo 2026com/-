@@ -1,4 +1,5 @@
 import { SURFACES, SURFACE_NAMES, PARAM_DEFS, setBackground, setParams, resetBackground, canUndoSurface, undoSurface } from '../../../services/backgrounds.js'
+import { getPetDirector } from '../../vpet/singleton.js'
 
 /**
  * AI 应用操作层（白名单指令协议）
@@ -136,6 +137,10 @@ export function confirmBackgroundAction(act, dispatch) {
       okText: '应用',
       onOk: () => {
         const ok = applyBackgroundAction(act)
+        if (ok) {
+          // 桌宠表演：任务执行 → 施法动作 2.6 秒（替代"执行中"提示，由桌宠呈现干活状态）
+          try { getPetDirector().submit({ type: 'work', name: 'cast', durationMs: 2600 }) } catch (e) { /* ignore */ }
+        }
         dispatch({ type: 'PUSH_MODAL', payload: { type: 'toast', message: ok ? (SUCCESS_MSG[act.action] || '✅ 已应用') : '⚠️ 应用失败，请重试' } })
       }
     }

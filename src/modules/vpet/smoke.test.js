@@ -89,5 +89,14 @@ assert(f.body.breath !== undefined, '呼吸节奏常驻输出')
 // 7c) 分区表保护：物理参数（头发）不可直写
 assert((await import('./channels.js')).isPhysicsParam('ParamHairFront'), '头发参数识别为物理参数')
 
+console.log('== 8) idle 单通道复位 ==')
+d.submit({ type: 'motion', name: 'nod' })
+d.submit({ type: 'emote', name: 'happy' })
+d.submit({ type: 'idle', params: { channel: 'body' } })
+assert(!d.channels.body.instruction, 'idle(body) 只清身通道')
+assert(d.channels.face.instruction?.type === 'emote', '脸通道表演不受影响')
+d.submit({ type: 'idle' })
+assert(!d.channels.face.instruction && !d.channels.body.instruction, 'idle 双通道全清')
+
 console.log(`\n结果: ${pass} 通过 / ${fail} 失败`)
 process.exit(fail ? 1 : 0)

@@ -1,8 +1,5 @@
-import { useEffect, useMemo, useRef } from 'react'
-import { PetDirector } from '../director.js'
-import { MockFaceExecutor, MockBodyExecutor } from '../executors/mockExecutors.js'
-import { SoullinkFaceExecutor } from '../executors/soullinkFaceAdapter.js'
-import { Ag99BodyExecutor } from '../executors/ag99BodyAdapter.js'
+import { useEffect, useRef } from 'react'
+import { getPetDirector } from '../singleton.js'
 
 /**
  * 虚拟桌宠 · PNG 纸片人渲染器（路径B 最小可行版）
@@ -26,10 +23,8 @@ export function PngPet({
 }) {
   const dRef = useRef(null)
   if (!dRef.current) {
-    dRef.current = director || new PetDirector({
-      faceExecutor: new SoullinkFaceExecutor(),
-      bodyExecutor: new Ag99BodyExecutor(),
-    })
+    // 默认消费全局单例（与 AI 对话/任务执行的表演触发源共用一个大脑）；外部注入优先
+    dRef.current = director || getPetDirector()
   }
   const directorRef = dRef.current
   const imgRef = useRef(null)

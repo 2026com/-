@@ -11,6 +11,22 @@ import { createPortal } from 'react-dom'
 import ChatFullScreen, { PROVIDER_META } from './fullscreen/ChatFullScreen.jsx'
 import { parseBackgroundAction, confirmBackgroundAction } from '../services/appActions.js'
 import { compressImageForBackground, setBackground, resetBackground, SURFACE_NAMES } from '../../../services/backgrounds.js'
+import { getPetDirector } from '../../vpet/singleton.js'
+
+// 桌宠表演：从 AI 回复文本推测情绪（启发式；真实阶段可由模型直接输出表演标签）
+function petReactToReply(text) {
+  try {
+    const pet = getPetDirector()
+    const t = String(text || '')
+    const sayMs = Math.min(8000, 1800 + t.length * 25)   // 说话口型时长 ≈ 阅读时长
+    pet.submit({ type: 'speak', durationMs: sayMs })
+    pet.submit({ type: 'idle', params: { channel: 'body' } })   // 回复到达 → 结束思考动作
+    const emo = /❤️|😊|😄|🎉|👍|✅|棒|加油|很开心|高兴|恭喜/.test(t) ? 'happy'
+      : /⚠️|错误|失败|抱歉|无法|出错/.test(t) ? 'sad'
+      : /？|\?|疑惑|为什么|奇怪/.test(t) ? 'surprised' : null
+    if (emo) pet.submit({ type: 'emote', name: emo, durationMs: sayMs })
+  } catch (e) { /* 桌宠表演失败不影响聊天 */ }
+}
 
 /**
  * 常驻可收起侧边 AI 对话窗口
@@ -427,6 +443,8 @@ export default function AIChatSidebar({ onOpenConfig, embedded = false }) {
     dispatch({ type: 'APPEND_AI_MESSAGE', payload: { message: userMsg } })
     setInputValue('')
     setLoading(true)
+    // 桌宠表演：等待回复时做思考动作（超时自动回落，防请求挂死卡动作）
+    try { getPetDirector().submit({ type: 'motion', name: 'thinking', durationMs: 20000 }) } catch (e) { /* ignore */ }
 
     // 2) 构造上下文（最近 12 条 + system prompt）—— 拆分迁移至 utils/ai/conversationManager.js
     const messagesForApi = buildContextMessages(state.aiHistory, content)
@@ -451,6 +469,8 @@ export default function AIChatSidebar({ onOpenConfig, embedded = false }) {
 💡 不配置 AI 也可 100% 完整手动使用整套系统（打卡 / 幕布 / 复盘全不受影响）。`
         const aiMsg = { id: uid('msg'), role: 'assistant', content: placeholder, createdAt: Date.now() }
         dispatch({ type: 'APPEND_AI_MESSAGE', payload: { message: aiMsg } })
+        // 桌宠表演：占位回复同样触发（⚠️ 文案 → 情绪启发式判定难过）
+        petReactToReply(placeholder)
         return
       }
 
@@ -462,6 +482,8 @@ export default function AIChatSidebar({ onOpenConfig, embedded = false }) {
       const finalText = String(aiContent || '').trim() || '（模型返回了空回答，请重试）'
       const aiMsg = { id: uid('msg'), role: 'assistant', content: finalText, createdAt: Date.now() }
       dispatch({ type: 'APPEND_AI_MESSAGE', payload: { message: aiMsg } })
+      // 桌宠表演：回复到达 → 说话口型 + 按内容推测的情绪表情
+      petReactToReply(finalText)
       // ===== 背景/皮肤指令：AI 回复若带白名单指令 → 弹确认后执行；白名单外 JSON 一律忽略（防提示词注入） =====
       const bgAct = parseBackgroundAction(finalText)
       if (bgAct) confirmBackgroundAction(bgAct, dispatch)
@@ -481,6 +503,8 @@ export default function AIChatSidebar({ onOpenConfig, embedded = false }) {
 已收到你的提问：「${content.slice(0, 40)}${content.length > 40 ? '…' : ''}」。`
       const aiMsg = { id: uid('msg'), role: 'assistant', content: fallback, createdAt: Date.now() }
       dispatch({ type: 'APPEND_AI_MESSAGE', payload: { message: aiMsg } })
+      // 桌宠表演：出错文案含 ⚠️ → 情绪启发式判定为难过
+      petReactToReply(fallback)
     } finally {
       setLoading(false)
       setTimeout(() => textareaRef.current?.focus(), 0)

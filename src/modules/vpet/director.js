@@ -49,9 +49,14 @@ export class PetDirector {
     }
     const ins = res.instruction
     if (ins.channel === 'both') {
-      // idle：两通道同时回落待机
-      this.channels.face = { instruction: null, startedAt: now(), until: null }
-      this.channels.body = { instruction: null, startedAt: now(), until: null }
+      // idle：支持 params.channel 指定单通道复位（如回复到达时只结束思考动作）；缺省双通道
+      const only = ins.params?.channel
+      if (only === 'face' || only === 'body') {
+        this.channels[only] = { instruction: null, startedAt: now(), until: null }
+      } else {
+        this.channels.face = { instruction: null, startedAt: now(), until: null }
+        this.channels.body = { instruction: null, startedAt: now(), until: null }
+      }
       this._emit('submitted', { instruction: ins })
       return { ok: true, id: ins.id }
     }
