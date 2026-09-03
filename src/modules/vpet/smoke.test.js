@@ -61,5 +61,33 @@ d.submit({ type: 'motion', name: 'nod' })
 d.submit({ type: 'idle' })
 assert(!d.channels.face.instruction && !d.channels.body.instruction, 'idle 清空双通道')
 
+console.log('== 7) 真实适配器（阶段二骨架） ==')
+const { SoullinkFaceExecutor } = await import('./executors/soullinkFaceAdapter.js')
+const { Ag99BodyExecutor } = await import('./executors/ag99BodyAdapter.js')
+const sf = new SoullinkFaceExecutor()
+const ab = new Ag99BodyExecutor()
+const d2 = createMockDirector({ faceExecutor: sf, bodyExecutor: ab })
+
+// 7a) SoulLink 脸适配器：emote 输出仅脸参数（越权身参数被剥除）
+assert(d2.submit({ type: 'emote', name: 'happy' }).ok, '真实脸适配器 emote 提交')
+await new Promise(r => setTimeout(r, 60))
+f = d2.tick()
+assert(f.face.mouthForm > 0 && f.face.cheek > 0, 'SoulLink 适配器通用表情键输出')
+assert(f.modelUpdate.bodyAngleX === undefined, '分区防线：脸适配器越权身参数被剥除')
+
+// 7b) AG99 身适配器：语义轴 → 参数；脸语义轴被剥除
+ab.setAxisLevels({ head_yaw: 2, body_yaw: -2, brow_bias: 4 })
+assert(ab.lastDroppedFaceAxes.brow_bias === 4, 'AG99 脸语义轴(brow_bias)被适配器剥除并留痕')
+await new Promise(r => setTimeout(r, 60))
+d2.tick()
+await new Promise(r => setTimeout(r, 60))
+f = d2.tick()
+assert(f.body.angleX > 5 && f.body.bodyAngleX < 0, '语义轴换算生效（head_yaw→angleX, body_yaw→bodyAngleX）')
+assert(f.body.mouthForm === undefined && f.body.browLY === undefined, '分区防线：身适配器越权嘴/眉参数被剥除')
+assert(f.body.breath !== undefined, '呼吸节奏常驻输出')
+
+// 7c) 分区表保护：物理参数（头发）不可直写
+assert((await import('./channels.js')).isPhysicsParam('ParamHairFront'), '头发参数识别为物理参数')
+
 console.log(`\n结果: ${pass} 通过 / ${fail} 失败`)
 process.exit(fail ? 1 : 0)

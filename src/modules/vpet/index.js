@@ -16,8 +16,14 @@ export { PetDirector } from './director.js'
 export { normalizeInstruction, PRIORITIES, INSTRUCTION_TYPES } from './protocol.js'
 export { FACE_PARAMS, BODY_PARAMS, filterByChannel, composeFrame } from './channels.js'
 export { MockFaceExecutor, MockBodyExecutor } from './executors/mockExecutors.js'
+export { SoullinkFaceExecutor } from './executors/soullinkFaceAdapter.js'
+export { Ag99BodyExecutor } from './executors/ag99BodyAdapter.js'
+export { AG99_AXIS_CHANNELS, PARAM_ALIASES, PHYSICS_PARAM_KEYWORDS, isPhysicsParam } from './channels.js'
 
-/** 一键创建装配好 Mock 执行器的导演实例（应用调试入口） */
-export function createMockDirector() {
-  return new PetDirector({ faceExecutor: new MockFaceExecutor(), bodyExecutor: new MockBodyExecutor() })
+/** 创建导演实例（默认装配 Mock 执行器；可传入真实适配器替换，契约一致） */
+export function createMockDirector(executors = {}) {
+  return new PetDirector({
+    faceExecutor: executors.faceExecutor || new MockFaceExecutor(),
+    bodyExecutor: executors.bodyExecutor || new MockBodyExecutor(),
+  })
 }
