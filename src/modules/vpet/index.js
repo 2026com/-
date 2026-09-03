@@ -20,6 +20,8 @@ export { SoullinkFaceExecutor } from './executors/soullinkFaceAdapter.js'
 export { Ag99BodyExecutor } from './executors/ag99BodyAdapter.js'
 export { AG99_AXIS_CHANNELS, PARAM_ALIASES, PHYSICS_PARAM_KEYWORDS, isPhysicsParam } from './channels.js'
 export { PngPet } from './renderer/PngPet.jsx'
+export { getPetDirector } from './singleton.js'
+export { petReactToReply, petThinking } from './petReact.js'
 
 /** 创建导演实例（默认装配 Mock 执行器；可传入真实适配器替换，契约一致） */
 export function createMockDirector(executors = {}) {

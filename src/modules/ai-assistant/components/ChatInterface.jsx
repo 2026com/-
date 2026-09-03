@@ -11,22 +11,9 @@ import { createPortal } from 'react-dom'
 import ChatFullScreen, { PROVIDER_META } from './fullscreen/ChatFullScreen.jsx'
 import { parseBackgroundAction, confirmBackgroundAction } from '../services/appActions.js'
 import { compressImageForBackground, setBackground, resetBackground, SURFACE_NAMES } from '../../../services/backgrounds.js'
-import { getPetDirector } from '../../vpet/singleton.js'
+import { petReactToReply, petThinking } from '../../vpet/petReact.js'
 
-// 桌宠表演：从 AI 回复文本推测情绪（启发式；真实阶段可由模型直接输出表演标签）
-function petReactToReply(text) {
-  try {
-    const pet = getPetDirector()
-    const t = String(text || '')
-    const sayMs = Math.min(8000, 1800 + t.length * 25)   // 说话口型时长 ≈ 阅读时长
-    pet.submit({ type: 'speak', durationMs: sayMs })
-    pet.submit({ type: 'idle', params: { channel: 'body' } })   // 回复到达 → 结束思考动作
-    const emo = /❤️|😊|😄|🎉|👍|✅|棒|加油|很开心|高兴|恭喜/.test(t) ? 'happy'
-      : /⚠️|错误|失败|抱歉|无法|出错/.test(t) ? 'sad'
-      : /？|\?|疑惑|为什么|奇怪/.test(t) ? 'surprised' : null
-    if (emo) pet.submit({ type: 'emote', name: emo, durationMs: sayMs })
-  } catch (e) { /* 桌宠表演失败不影响聊天 */ }
-}
+// 桌宠表演逻辑已抽至 modules/vpet/petReact.js（与语音对话流程共享同一套反应）
 
 /**
  * 常驻可收起侧边 AI 对话窗口
@@ -444,7 +431,7 @@ export default function AIChatSidebar({ onOpenConfig, embedded = false }) {
     setInputValue('')
     setLoading(true)
     // 桌宠表演：等待回复时做思考动作（超时自动回落，防请求挂死卡动作）
-    try { getPetDirector().submit({ type: 'motion', name: 'thinking', durationMs: 20000 }) } catch (e) { /* ignore */ }
+    petThinking()
 
     // 2) 构造上下文（最近 12 条 + system prompt）—— 拆分迁移至 utils/ai/conversationManager.js
     const messagesForApi = buildContextMessages(state.aiHistory, content)
