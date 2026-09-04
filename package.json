@@ -14,6 +14,7 @@
     "audit:parallel": "node scripts/check-undef.mjs && node scripts/check-tdz.mjs && node scripts/check-overwrites.mjs && node scripts/check-conflicts.mjs && node scripts/check-circular.mjs && npx eslint src --quiet"
   },
   "dependencies": {
+    "@capacitor-community/speech-recognition": "^7.0.1",
     "@capacitor/android": "^8.5.0",
     "@capacitor/cli": "^8.5.0",
     "@capacitor/clipboard": "^8.0.1",

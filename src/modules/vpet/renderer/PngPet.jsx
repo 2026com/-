@@ -5,6 +5,8 @@ import { buildContextMessages } from '../../ai-assistant/services/conversationMa
 import { chatCompletion } from '../../ai-assistant/services/aiClient.js'
 import { uid } from '../../../services/storage.js'
 import { useAppState, useAppDispatch } from '../../../context/AppContext.jsx'
+import { Capacitor } from '@capacitor/core'
+import { SpeechRecognition } from '@capacitor-community/speech-recognition'
 
 /**
  * 虚拟桌宠 · PNG 纸片人渲染器（路径B + 交互版）
@@ -88,11 +90,61 @@ export function PngPet({
     }
   }
 
-  // ===== 语音输入（Web Speech API；APK WebView 可能不支持，气泡提示） =====
+  // ===== 语音输入：原生(APK)走 @capacitor-community/speech-recognition 插件；网页走 Web Speech API =====
   const [listening, setListening] = useState(false)
   const recogRef = useRef(null)
-  const toggleVoice = () => {
-    if (listening) { try { recogRef.current?.stop() } catch (e) { /* ignore */ } return }
+  const nativeListenerRef = useRef(null)
+  const toggleVoice = async () => {
+    if (listening) {
+      // 停止：原生先 stop 插件，网页停 Web SR
+      if (Capacitor.isNativePlatform()) {
+        try { await SpeechRecognition.stop() } catch (e) { /* ignore */ }
+        try { (await nativeListenerRef.current)?.remove?.() } catch (e) { /* ignore */ }
+        nativeListenerRef.current = null
+      } else {
+        try { recogRef.current?.stop() } catch (e) { /* ignore */ }
+      }
+      setListening(false)
+      return
+    }
+    // ===== 原生分支（APK） =====
+    if (Capacitor.isNativePlatform()) {
+      try {
+        const { available } = await SpeechRecognition.available()
+        if (!available) {
+          showBubble('这台手机缺少语音识别服务（部分国产手机未预装 Google 服务），可改用键盘输入')
+          return
+        }
+        const perm = await SpeechRecognition.checkPermissions()
+        if (perm.speechRecognition !== 'granted' || perm.microphone !== 'granted') {
+          const req = await SpeechRecognition.requestPermissions({ permissions: ['microphone', 'speechRecognition'] })
+          if (req.microphone !== 'granted' && req.speechRecognition !== 'granted') {
+            showBubble('麦克风/语音权限被拒绝，无法听你说话')
+            return
+          }
+        }
+        if (nativeListenerRef.current) { try { (await nativeListenerRef.current)?.remove?.() } catch (e) { /* ignore */ } }
+        nativeListenerRef.current = await SpeechRecognition.addListener('partialResults', async (data) => {
+          const matches = data?.matches || []
+          const text = String(matches[matches.length - 1] || '').trim()
+          if (text) {
+            setListening(false)
+            try { SpeechRecognition.stop() } catch (e) { /* ignore */ }
+            try { (await nativeListenerRef.current)?.remove?.() } catch (e) { /* ignore */ }
+            nativeListenerRef.current = null
+            sendToAI(text)
+          }
+        })
+        await SpeechRecognition.start({ locale: 'zh-CN', maxMatches: 1, popup: true, partialResults: true })
+        setListening(true)
+        showBubble('🎤 在听…再点一下桌宠可停止')
+      } catch (e) {
+        showBubble('语音识别启动失败：' + String(e?.message || e).slice(0, 40))
+        setListening(false)
+      }
+      return
+    }
+    // ===== 网页分支 =====
     const SR = window.SpeechRecognition || window.webkitSpeechRecognition
     if (!SR) { showBubble('当前环境不支持语音识别（需 Chrome/Edge 或系统支持）'); return }
     try {
