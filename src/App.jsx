@@ -4,7 +4,7 @@ import BottomTabs from './components/layout/BottomTabs.jsx'
 import LeftDrawer from './components/layout/LeftDrawer.jsx'
 import TopStatusBar from './components/layout/TopStatusBar.jsx'
 import DisplayControls from './components/layout/DisplayControls.jsx'
-import { PngPet } from './modules/vpet/index.js'
+import { PngPet, Live2DPet } from './modules/vpet/index.js'
 import CalendarDrawer from './components/layout/CalendarDrawer.jsx'
 import DashboardPanel from './components/dashboard/DashboardPanel.jsx'
 import ModalRoot from './components/common/ModalRoot.jsx'
@@ -228,6 +228,14 @@ export default function App() {
           size={104}
           debugExpose
           style={{ position: 'fixed', left: 10, bottom: 'calc(var(--bottombar-total, 64px) + 10px)', zIndex: 25 }}
+        />
+      )}
+
+      {/* 虚拟桌宠 · Live2D 渲染层（阶段A预览：官方示例模型 Hiyori，右下角；与 PNG 桌宠共用同一个大脑） */}
+      {!pureMode && !location.pathname.startsWith('/knowledge-base') && (
+        <Live2DPet
+          size={190}
+          style={{ position: 'fixed', right: 74, bottom: 'calc(var(--bottombar-total, 64px) + 6px)', zIndex: 24 }}
         />
       )}
     </div>

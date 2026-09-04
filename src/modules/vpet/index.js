@@ -20,6 +20,7 @@ export { SoullinkFaceExecutor } from './executors/soullinkFaceAdapter.js'
 export { Ag99BodyExecutor } from './executors/ag99BodyAdapter.js'
 export { AG99_AXIS_CHANNELS, PARAM_ALIASES, PHYSICS_PARAM_KEYWORDS, isPhysicsParam } from './channels.js'
 export { PngPet } from './renderer/PngPet.jsx'
+export { Live2DPet } from './renderer/Live2DPet.jsx'
 export { getPetDirector } from './singleton.js'
 export { petReactToReply, petThinking } from './petReact.js'
 
