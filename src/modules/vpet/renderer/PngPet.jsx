@@ -80,7 +80,13 @@ export function PngPet({
       try { localStorage.setItem(POS_KEY, JSON.stringify(posRef.current)) } catch (e) { /* ignore */ }
       return
     }
-    // 未移动 = 点按；300ms 内两次 → 双击 → 语音输入开关
+    // 听的过程中：单击即停止听（不需要双击）
+    if (listening) {
+      lastTapRef.current = 0
+      toggleVoice()
+      return
+    }
+    // 未在听：300ms 内两次点按 → 双击 → 语音输入开关
     const now = Date.now()
     if (now - lastTapRef.current < 300) {
       lastTapRef.current = 0
@@ -152,12 +158,23 @@ export function PngPet({
       rec.lang = 'zh-CN'
       rec.interimResults = false
       rec.maxAlternatives = 1
+      let got = false   // 本次是否识别到了内容
       rec.onresult = (ev) => {
         const text = ev.results?.[0]?.[0]?.transcript?.trim()
-        if (text) sendToAI(text)
+        if (text) { got = true; sendToAI(text) }
       }
-      rec.onerror = (ev) => { if (ev.error !== 'aborted') showBubble(`语音识别出错：${ev.error}`) }
-      rec.onend = () => setListening(false)
+      rec.onerror = (ev) => {
+        const map = {
+          network: '语音识别需要联网（当前网络无法访问语音服务）',
+          'not-allowed': '麦克风权限被拒绝，请在浏览器设置里允许',
+          'service-not-allowed': '当前环境没有可用的语音服务',
+        }
+        if (ev.error !== 'aborted') showBubble(map[ev.error] || `语音识别出错：${ev.error}`)
+      }
+      rec.onend = () => {
+        setListening(false)
+        if (!got) showBubble('没听清，请再双击桌宠试一次', 4000)
+      }
       recogRef.current = rec
       rec.start()
       setListening(true)

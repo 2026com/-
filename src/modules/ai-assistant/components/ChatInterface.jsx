@@ -413,6 +413,14 @@ export default function AIChatSidebar({ onOpenConfig, embedded = false }) {
     return () => window.removeEventListener('resize', onResize)
   }, [clampFabTop])
 
+  // 输入框自动增高（修复多行文字被固定高度遮挡）：跟随内容长高至 max-h-32，发送后回落
+  useEffect(() => {
+    const el = textareaRef.current
+    if (!el) return
+    el.style.height = 'auto'
+    el.style.height = Math.min(el.scrollHeight, 128) + 'px'
+  }, [inputValue])
+
   // 展开/新消息时滚到底
   useEffect(() => {
     if (scrollRef.current && expanded) {

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useRef } from 'react'
 import { pushBackHandler } from '../../../../utils/backStack.js'
 
 /**
@@ -42,6 +42,14 @@ export default function ChatFullScreen({
 }) {
   const [historyOpen, setHistoryOpen] = useState(false)
   const [modelOpen, setModelOpen] = useState(false)
+  // 输入框自动增高（修复多行文字被固定高度遮挡）：跟随内容长高至 max-h-32
+  const taRef = useRef(null)
+  useEffect(() => {
+    const el = taRef.current
+    if (!el) return
+    el.style.height = 'auto'
+    el.style.height = Math.min(el.scrollHeight, 128) + 'px'
+  }, [inputValue])
 
   // 历史抽屉打开时：安卓返回键先关抽屉（LIFO，后开先关），再才是退全屏
   useEffect(() => {
@@ -199,6 +207,7 @@ export default function ChatFullScreen({
               aria-label="发图片换背景"
             >🖼️</button>
             <textarea
+              ref={taRef}
               value={inputValue}
               onChange={(e) => setInputValue(e.target.value)}
               onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); onSend() } }}
