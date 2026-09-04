@@ -1,2 +1,2 @@
 ﻿/** 构建版本标识：每次打包更新（顶栏🔔面板显示，用于确认手机上跑的是不是新包） */
-export const BUILD_TAG = 'v0831-2315'
+export const BUILD_TAG = 'v0902-2202'

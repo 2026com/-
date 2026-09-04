@@ -27,4 +27,10 @@ export default [
       'no-empty': ['warn', { allowEmptyCatch: true }],
     },
   },
+  {
+    // 冒烟/单元测试文件：跑在 Node 里（process 等全局合法），且不参与浏览器构建
+    files: ['src/**/*.test.js', 'src/**/*.test.jsx', 'src/**/*.spec.js'],
+    languageOptions: { globals: { process: 'readonly' } },
+    rules: { 'no-useless-assignment': 'off' },
+  },
 ]
