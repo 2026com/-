@@ -232,7 +232,7 @@ const cw = maxX - minX + 1, ch = maxY - minY + 1
 console.log(`裁剪: ${W}x${H} -> ${cw}x${ch}`)
 
 // 4) 缩放到最长边 512（最近邻）
-const MAX = 512
+const MAX = Number(process.argv[4]) || 512
 const scale = Math.min(1, MAX / Math.max(cw, ch))
 const tw = Math.max(1, Math.round(cw * scale)), th = Math.max(1, Math.round(ch * scale))
 const out = Buffer.alloc(tw * th * 4)
