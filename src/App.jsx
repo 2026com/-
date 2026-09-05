@@ -4,7 +4,7 @@ import BottomTabs from './components/layout/BottomTabs.jsx'
 import LeftDrawer from './components/layout/LeftDrawer.jsx'
 import TopStatusBar from './components/layout/TopStatusBar.jsx'
 import DisplayControls from './components/layout/DisplayControls.jsx'
-import { PngPet, Live2DPet } from './modules/vpet/index.js'
+import { PngPet } from './modules/vpet/index.js'   // Live2DPet 渲染层暂不挂载（阶段D 自绘模型完成后替换），组件保留在 modules/vpet/renderer/
 import CalendarDrawer from './components/layout/CalendarDrawer.jsx'
 import DashboardPanel from './components/dashboard/DashboardPanel.jsx'
 import ModalRoot from './components/common/ModalRoot.jsx'
@@ -221,21 +221,14 @@ export default function App() {
         })} />
       )}
 
-      {/* 虚拟桌宠（路径B PNG纸片人 MVP）：Director 驱动的立绘形象；3D 知识库页与纯净模式隐藏（避性能冲突） */}
+      {/* 虚拟桌宠（路径B PNG纸片人）：高度 = 横线本 3 格（37px × 3 = 111px），头脚各顶一条横线 */}
+      {/* Live2D 渲染层（Live2DPet 组件）保留在 modules/vpet/renderer/ 里，阶段D 自绘模型完成后替换挂载 */}
       {!pureMode && !location.pathname.startsWith('/knowledge-base') && (
         <PngPet
           images={{ base: '/pet/base.png' }}
-          size={104}
+          size={111}
           debugExpose
           style={{ position: 'fixed', left: 10, bottom: 'calc(var(--bottombar-total, 64px) + 10px)', zIndex: 25 }}
-        />
-      )}
-
-      {/* 虚拟桌宠 · Live2D 渲染层（阶段A预览：官方示例模型 Hiyori，右下角；与 PNG 桌宠共用同一个大脑） */}
-      {!pureMode && !location.pathname.startsWith('/knowledge-base') && (
-        <Live2DPet
-          size={190}
-          style={{ position: 'fixed', right: 74, bottom: 'calc(var(--bottombar-total, 64px) + 6px)', zIndex: 24 }}
         />
       )}
     </div>
