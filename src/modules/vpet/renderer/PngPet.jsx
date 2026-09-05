@@ -216,7 +216,7 @@ export function PngPet({
         const tip = '⚙️ 还没有配置 API Key，我暂时说不了话。展开 AI 对话 → ⚙️ 里填入密钥就能聊了！'
         showBubble(tip, 8000)
         dispatch({ type: 'APPEND_AI_MESSAGE', payload: { message: { id: uid('msg'), role: 'assistant', content: tip, createdAt: Date.now() } } })
-        petReactToReply(tip)
+        petReactToReply(tip, { tts: false })
         return
       }
       const { content: reply } = await chatCompletion(aiConfig, buildContextMessages(state.aiHistory, text), { timeoutMs: 15000, temperature: 0.7 })
@@ -228,7 +228,7 @@ export function PngPet({
       const tip = `⚠️ 连接失败：${String(err?.message || '网络异常').slice(0, 60)}`
       showBubble(tip, 6000)
       dispatch({ type: 'APPEND_AI_MESSAGE', payload: { message: { id: uid('msg'), role: 'assistant', content: tip, createdAt: Date.now() } } })
-      petReactToReply(tip)
+      petReactToReply(tip, { tts: false })
     } finally {
       setAiBusy(false)
     }

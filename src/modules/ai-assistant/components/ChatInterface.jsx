@@ -464,8 +464,8 @@ export default function AIChatSidebar({ onOpenConfig, embedded = false }) {
 💡 不配置 AI 也可 100% 完整手动使用整套系统（打卡 / 幕布 / 复盘全不受影响）。`
         const aiMsg = { id: uid('msg'), role: 'assistant', content: placeholder, createdAt: Date.now() }
         dispatch({ type: 'APPEND_AI_MESSAGE', payload: { message: aiMsg } })
-        // 桌宠表演：占位回复同样触发（⚠️ 文案 → 情绪启发式判定难过）
-        petReactToReply(placeholder)
+        // 桌宠表演：占位提示不念出来（避免每次都播报设置教程），只做表情
+        petReactToReply(placeholder, { tts: false })
         return
       }
 
@@ -498,8 +498,8 @@ export default function AIChatSidebar({ onOpenConfig, embedded = false }) {
 已收到你的提问：「${content.slice(0, 40)}${content.length > 40 ? '…' : ''}」。`
       const aiMsg = { id: uid('msg'), role: 'assistant', content: fallback, createdAt: Date.now() }
       dispatch({ type: 'APPEND_AI_MESSAGE', payload: { message: aiMsg } })
-      // 桌宠表演：出错文案含 ⚠️ → 情绪启发式判定为难过
-      petReactToReply(fallback)
+      // 桌宠表演：连接失败的报错不念出来，只做难过表情
+      petReactToReply(fallback, { tts: false })
     } finally {
       setLoading(false)
       setTimeout(() => textareaRef.current?.focus(), 0)
