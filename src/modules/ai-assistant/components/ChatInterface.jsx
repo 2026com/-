@@ -9,9 +9,10 @@ import { dbGet, dbSet } from '../../../services/db.js'
 import { pushBackHandler } from '../../../utils/backStack.js'
 import { createPortal } from 'react-dom'
 import ChatFullScreen, { PROVIDER_META } from './fullscreen/ChatFullScreen.jsx'
-import { parseBackgroundAction, confirmBackgroundAction } from '../services/appActions.js'
+import { parseBackgroundAction, confirmBackgroundAction, applyBackgroundAction } from '../services/appActions.js'
 import { compressImageForBackground, setBackground, resetBackground, SURFACE_NAMES } from '../../../services/backgrounds.js'
 import { petReactToReply, petThinking } from '../../vpet/petReact.js'
+import { ttsEnabled, setTtsEnabled, stopSpeaking } from '../../vpet/tts.js'
 
 // 桌宠表演逻辑已抽至 modules/vpet/petReact.js（与语音对话流程共享同一套反应）
 
@@ -41,6 +42,8 @@ export default function AIChatSidebar({ onOpenConfig, embedded = false }) {
   const [importOpen, setImportOpen] = useState(false)
   // 全屏对话模式（仅 embedded 左侧抽屉模式有意义）：fixed 铺满视口，Esc/返回键/再次点击退出
   const [fullscreen, setFullscreen] = useState(false)
+  // 语音朗读开关（TTS；与桌宠共用同一 Director 口型驱动）
+  const [ttsOn, setTtsOn] = useState(ttsEnabled())
 
   // 监听左侧抽屉标题栏的全屏开关按钮（LeftDrawer 广播 app:ai-fullscreen-toggle）
   useEffect(() => {
@@ -479,9 +482,12 @@ export default function AIChatSidebar({ onOpenConfig, embedded = false }) {
       dispatch({ type: 'APPEND_AI_MESSAGE', payload: { message: aiMsg } })
       // 桌宠表演：回复到达 → 说话口型 + 按内容推测的情绪表情
       petReactToReply(finalText)
-      // ===== 背景/皮肤指令：AI 回复若带白名单指令 → 弹确认后执行；白名单外 JSON 一律忽略（防提示词注入） =====
+      // ===== 背景/皮肤指令：AI 回复若带白名单指令 → 背景类弹确认后执行；表演类（动作/表情）直接执行；白名单外 JSON 一律忽略（防提示词注入） =====
       const bgAct = parseBackgroundAction(finalText)
-      if (bgAct) confirmBackgroundAction(bgAct, dispatch)
+      if (bgAct) {
+        if (bgAct.action === 'perform') applyBackgroundAction(bgAct)
+        else confirmBackgroundAction(bgAct, dispatch)
+      }
     } catch (err) {
       // ====== 真实调用失败：给出错误原文 + 下一步建议，不锁主流程 ======
       const errMsg = (err && err.message) ? String(err.message) : '网络异常'
@@ -620,6 +626,18 @@ export default function AIChatSidebar({ onOpenConfig, embedded = false }) {
               </div>
             </div>
             <div className="flex items-center gap-1">
+              {/* 语音朗读开关（🔊 朗读中点击=立即闭嘴并关闭；🔇 再点恢复） */}
+              {embedded && (
+                <button
+                  onClick={() => {
+                    if (ttsOn) { stopSpeaking(); setTtsEnabled(false); setTtsOn(false) }
+                    else { setTtsEnabled(true); setTtsOn(true) }
+                  }}
+                  className={`w-8 h-8 rounded-lg hover:bg-slate-100 flex items-center justify-center text-sm touch-feedback ${ttsOn ? 'text-indigo-600' : 'text-slate-400'}`}
+                  title={ttsOn ? '语音朗读：开（点击关闭并停止朗读）' : '语音朗读：关（点击开启）'}
+                  aria-label={ttsOn ? '关闭语音朗读' : '开启语音朗读'}
+                >{ttsOn ? '🔊' : '🔇'}</button>
+              )}
               {/* 全屏/退出全屏（仅左侧抽屉嵌入模式；与抽屉标题栏的按钮共用同一状态） */}
               {embedded && (
                 <button

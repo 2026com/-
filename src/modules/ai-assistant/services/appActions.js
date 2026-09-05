@@ -18,6 +18,8 @@ export const APP_ACTION_PROTOCOL = `
    notebook 可调参数：lineSpacing 行距(0.8~1.6，默认1，1=标准行高37px)、fontSize 字号(0.8~1.4，默认1，1=标准字号15.5px)。
 3. 撤回到上一步：\`\`\`json\n{"action":"undo_appearance","surface":"knowledge|memory|notebook"}\n\`\`\`（撤销该页面最近一次外观变更，可连续撤回，每页最多记 20 步）
 4. 恢复最初默认：\`\`\`json\n{"action":"reset_background","surface":"knowledge|memory|notebook|all"}\n\`\`\`（背景和参数+撤回历史一并清空，回到出厂外观）
+5. 表演：\`\`\`json\n{"action":"perform","emote":"happy|sad|angry|surprised|neutral","motion":"nod|shake|thinking|peek|wave|working|cast|glance|tilt","durationMs":2000}\n\`\`\`
+   （当回复带有明显情绪或想配合动作时使用；emote/motion 字段都可选，durationMs 800~10000）
 surface 含义：knowledge=3D知识库，memory=记忆库，notebook=横线本；all=全部恢复默认。
 规则：用户没要求时绝不输出指令；用户说「星星多点/转快点/亮一点」等模糊需求时映射到对应参数并取合理值；每次只输出一条指令。`
 
@@ -76,6 +78,17 @@ export function parseBackgroundAction(text) {
   if (obj.action === 'reset_background' && (obj.surface === 'all' || SURFACES.includes(obj.surface))) {
     return { action: 'reset_background', surface: obj.surface }
   }
+  // 表演指令：情绪表情 + 身体动作（白名单校验，缺省字段补默认时长）
+  if (obj.action === 'perform') {
+    const EMOTES = ['happy', 'sad', 'angry', 'surprised', 'neutral']
+    const MOTIONS = ['nod', 'shake', 'thinking', 'peek', 'wave', 'working', 'cast', 'glance', 'tilt']
+    const out = { action: 'perform' }
+    if (EMOTES.includes(obj.emote)) out.emote = obj.emote
+    if (MOTIONS.includes(obj.motion)) out.motion = obj.motion
+    const n = Number(obj.durationMs)
+    out.durationMs = Number.isFinite(n) ? Math.min(10000, Math.max(800, Math.round(n))) : 3000
+    if (out.emote || out.motion) return out
+  }
   return null
 }
 
@@ -116,6 +129,18 @@ export function applyBackgroundAction(act) {
   try {
     if (act.action === 'set_background') return setBackground(act.surface, act.bg)
     if (act.action === 'set_params') return setParams(act.surface, act.params)
+    if (act.action === 'perform') {
+      // 表演指令：纯外观无破坏性，直接驱动桌宠（不经确认弹窗）
+      const pet = getPetDirector()
+      let ok = false
+      if (act.emote && act.emote !== 'neutral') {
+        ok = pet.submit({ type: 'emote', name: act.emote, durationMs: act.durationMs }).ok || ok
+      }
+      if (act.motion) {
+        ok = pet.submit({ type: 'motion', name: act.motion, durationMs: act.durationMs }).ok || ok
+      }
+      return ok
+    }
     if (act.action === 'undo_appearance') return undoSurface(act.surface)
     if (act.action === 'reset_background') return resetBackground(act.surface)
   } catch (e) { /* ignore */ }
