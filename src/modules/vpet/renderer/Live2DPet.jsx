@@ -3,6 +3,7 @@ import * as PIXI from 'pixi.js'
 import { Live2DModel } from 'pixi-live2d-display-lipsyncpatch/cubism4'
 import { getPetDirector } from '../singleton.js'
 import { PARAM_ALIASES } from '../channels.js'
+import { startIdleSystem } from '../idleSystem.js'
 
 // pixi-live2d-display 部分功能依赖全局 PIXI
 if (typeof window !== 'undefined') window.PIXI = PIXI
@@ -30,6 +31,7 @@ export function Live2DPet({
     let app = null
     let model = null
     let raf = 0
+    let motionTimer = null
 
     ;(async () => {
       try {
@@ -56,6 +58,12 @@ export function Live2DPet({
         // 挂到全局 Director（与 PNG 桌宠/AI 对话共享同一个大脑）
         const director = getPetDirector()
         window.__petDirector = director
+        startIdleSystem()   // 生命感系统（单例；随机视线游移/歪头/浅笑）
+
+        // 每 25~45 秒随机播放一个 Hiyori 自带的 Idle 动作（m01~m10）
+        motionTimer = setInterval(() => {
+          try { model.motion('Idle', Math.floor(Math.random() * 10)) } catch (e) { /* ignore */ }
+        }, 25000 + Math.random() * 20000)
 
         // 参数键 → 模型参数 id（规范名优先取第一个别名，即 Cubism 标准写法）
         const resolveId = (key) => PARAM_ALIASES[key]?.[0] || key
@@ -81,6 +89,7 @@ export function Live2DPet({
     return () => {
       destroyed = true
       cancelAnimationFrame(raf)
+      if (motionTimer) clearInterval(motionTimer)
       try { model?.destroy() } catch (e) { /* ignore */ }
       try { app?.destroy(true, { children: true }) } catch (e) { /* ignore */ }
     }

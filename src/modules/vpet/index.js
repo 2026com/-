@@ -23,6 +23,7 @@ export { PngPet } from './renderer/PngPet.jsx'
 export { Live2DPet } from './renderer/Live2DPet.jsx'
 export { getPetDirector } from './singleton.js'
 export { petReactToReply, petThinking } from './petReact.js'
+export { startIdleSystem, stopIdleSystem } from './idleSystem.js'
 
 /** 创建导演实例（默认装配 Mock 执行器；可传入真实适配器替换，契约一致） */
 export function createMockDirector(executors = {}) {

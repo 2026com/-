@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { getPetDirector } from '../singleton.js'
 import { petReactToReply, petThinking } from '../petReact.js'
+import { startIdleSystem } from '../idleSystem.js'
 import { buildContextMessages } from '../../ai-assistant/services/conversationManager.js'
 import { chatCompletion } from '../../ai-assistant/services/aiClient.js'
 import { uid } from '../../../services/storage.js'
@@ -53,6 +54,7 @@ export function PngPet({
   // ===== 拖动 + 双击 =====
   const dragRef = useRef({ on: false, moved: false, sx: 0, sy: 0, ox: 0, oy: 0 })
   const lastTapRef = useRef(0)
+  const lastPatRef = useRef(0)   // 摸头反应冷却
   const onPointerDown = (e) => {
     if (!interactive) return
     try { e.currentTarget.setPointerCapture(e.pointerId) } catch (err) { /* ignore */ }
@@ -86,13 +88,17 @@ export function PngPet({
       toggleVoice()
       return
     }
-    // 未在听：300ms 内两次点按 → 双击 → 语音输入开关
+    // 未在听：300ms 内两次点按 → 双击 → 语音输入开关；单击 → 摸头小反应（4 秒冷却）
     const now = Date.now()
     if (now - lastTapRef.current < 300) {
       lastTapRef.current = 0
       toggleVoice()
     } else {
       lastTapRef.current = now
+      if (now - lastPatRef.current > 4000) {
+        lastPatRef.current = now
+        try { getPetDirector().submit({ type: 'emote', name: 'happy', durationMs: 900, params: { intensity: 0.6 } }) } catch (e) { /* ignore */ }
+      }
     }
   }
 
@@ -231,6 +237,7 @@ export function PngPet({
   // ===== 渲染循环 =====
   useEffect(() => {
     if (debugExpose && typeof window !== 'undefined') window.__petDirector = directorRef
+    startIdleSystem()   // 生命感系统（全应用单例，随机小动作）
     let raf
     const loop = () => {
       try {
